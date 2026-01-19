@@ -47,14 +47,15 @@ dependencies {
     // Core Quarkus dependencies
     implementation libs.quarkus.arc
     implementation libs.quarkus.rest
+    implementation 'io.quarkus:quarkus-grpc'
     implementation 'io.quarkus:quarkus-smallrye-health'
     implementation 'io.quarkus:quarkus-config-yaml'
     
     // AWS S3 dependencies (from Amazon Services BOM)
     implementation 'io.quarkiverse.amazonservices:quarkus-amazon-s3'
     implementation 'software.amazon.awssdk:s3'
-    // HTTP client implementation required by Quarkus Amazon Services extension
-    implementation 'software.amazon.awssdk:url-connection-client'
+    // HTTP client implementation for AWS SDK async client (Netty)
+    implementation libs.aws.sdk.netty.nio
     
     // Kafka dependencies
     implementation 'io.quarkus:quarkus-messaging-kafka'
@@ -73,13 +74,14 @@ dependencies {
     // Test dependencies
     testImplementation platform("ai.pipestream:pipestream-bom:${pipestreamBomVersion}")
     testImplementation libs.quarkus.junit5
+    testImplementation 'io.quarkus:quarkus-test-vertx'
     testImplementation libs.rest.assured
     testImplementation libs.awaitility
     testImplementation libs.apicurio.registry.protobuf.serde
     testImplementation(testFixtures("ai.pipestream:pipestream-test-support:${pipestreamBomVersion}"))
     // Testcontainers - version managed by pipestream-bom
     testImplementation 'org.testcontainers:testcontainers'
-    testImplementation 'org.testcontainers:minio'
+    testImplementation 'org.testcontainers:testcontainers-minio:2.0.1'
 }
 
 

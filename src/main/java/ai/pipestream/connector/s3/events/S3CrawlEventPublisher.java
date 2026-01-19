@@ -4,6 +4,7 @@ import ai.pipestream.apicurio.registry.protobuf.ProtobufChannel;
 import ai.pipestream.apicurio.registry.protobuf.ProtobufEmitter;
 import ai.pipestream.connector.s3.v1.S3CrawlEvent;
 import com.google.protobuf.Timestamp;
+import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
@@ -13,7 +14,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.HexFormat;
-import java.util.concurrent.CompletionStage;
 
 /**
  * Publisher for S3 crawl events to Kafka.
@@ -26,25 +26,25 @@ public class S3CrawlEventPublisher {
     private static final Logger LOG = Logger.getLogger(S3CrawlEventPublisher.class);
 
     @Inject
-    @ProtobufChannel("s3-crawl-events")
+    @ProtobufChannel("s3-crawl-events-out")
     ProtobufEmitter<S3CrawlEvent> eventEmitter;
 
     /**
      * Publish an S3 crawl event.
      *
      * @param event the crawl event protobuf message to publish
-     * @return a {@link CompletionStage} handle for the send operation
+     * @return a reactive {@link Uni} handle for the send operation
      */
-    public CompletionStage<Void> publish(S3CrawlEvent event) {
-        try {
-            LOG.debugf("Publishing S3 crawl event: datasourceId=%s, sourceUrl=%s", 
-                event.getDatasourceId(), event.getSourceUrl());
-            return eventEmitter.send(event);
-        } catch (Exception e) {
-            LOG.errorf(e, "Error publishing S3 crawl event: datasourceId=%s, sourceUrl=%s",
-                event.getDatasourceId(), event.getSourceUrl());
-            throw new RuntimeException("Failed to publish S3 crawl event", e);
-        }
+    public Uni<Void> publish(S3CrawlEvent event) {
+        LOG.debugf("Publishing S3 crawl event: datasourceId=%s, sourceUrl=%s", 
+            event.getDatasourceId(), event.getSourceUrl());
+        
+        return Uni.createFrom().completionStage(eventEmitter.send(event))
+            .onFailure().invoke(error -> {
+                LOG.errorf(error, "Error publishing S3 crawl event: datasourceId=%s, sourceUrl=%s",
+                    event.getDatasourceId(), event.getSourceUrl());
+            })
+            .replaceWithVoid();
     }
 
     /**

@@ -15,12 +15,6 @@ import java.time.Duration;
 public interface S3ConnectorConfig {
 
     /**
-     * Default bucket for testing (can be overridden per datasource config).
-     */
-    @WithDefault("test-bucket")
-    String defaultBucket();
-
-    /**
      * Crawl mode: initial-crawl, event-driven, or both.
      */
     @WithDefault("initial-crawl")
@@ -45,8 +39,7 @@ public interface S3ConnectorConfig {
         @WithDefault("true")
         boolean enabled();
 
-        @WithDefault("")
-        String prefix();
+        java.util.Optional<String> prefix();
 
         @WithDefault("1000")
         int maxKeysPerRequest();

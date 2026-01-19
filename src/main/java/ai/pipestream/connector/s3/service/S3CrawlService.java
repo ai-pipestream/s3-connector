@@ -3,16 +3,19 @@ package ai.pipestream.connector.s3.service;
 import ai.pipestream.connector.s3.config.S3ConnectorConfig;
 import ai.pipestream.connector.s3.events.S3CrawlEventPublisher;
 import ai.pipestream.connector.s3.v1.S3CrawlEvent;
+import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
-import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
 import java.time.Instant;
-import java.util.concurrent.CompletionStage;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 /**
  * Service for crawling S3 buckets and emitting crawl events.
@@ -23,7 +26,7 @@ public class S3CrawlService {
     private static final Logger LOG = Logger.getLogger(S3CrawlService.class);
 
     @Inject
-    S3Client s3Client;
+    S3AsyncClient s3AsyncClient;
 
     @Inject
     S3CrawlEventPublisher eventPublisher;
@@ -38,49 +41,83 @@ public class S3CrawlService {
      * @param datasourceId datasource identifier
      * @param bucket bucket name
      * @param prefix optional prefix filter (may be null/empty)
-     * @return completion stage for the crawl operation
+     * @return reactive Uni for the crawl operation
      */
-    public CompletionStage<Void> crawlBucket(String datasourceId, String bucket, String prefix) {
+    public Uni<Void> crawlBucket(String datasourceId, String bucket, String prefix) {
         LOG.infof("Starting S3 crawl: datasourceId=%s, bucket=%s, prefix=%s", datasourceId, bucket, prefix);
-        
-        return crawlBucketInternal(datasourceId, bucket, prefix)
-            .thenRun(() -> LOG.infof("Completed S3 crawl: datasourceId=%s, bucket=%s", datasourceId, bucket));
+
+        AtomicInteger totalObjects = new AtomicInteger(0);
+        return crawlBucketInternal(datasourceId, bucket, prefix, null, totalObjects)
+            .invoke(() -> LOG.infof("Completed S3 crawl: datasourceId=%s, bucket=%s", datasourceId, bucket))
+            .replaceWithVoid();
     }
 
-    private CompletionStage<Void> crawlBucketInternal(String datasourceId, String bucket, String prefix) {
-        String actualPrefix = (prefix != null && !prefix.isBlank()) ? prefix : config.initialCrawl().prefix();
+    private Uni<Void> crawlBucketInternal(String datasourceId,
+                                          String bucket,
+                                          String prefix,
+                                          String continuationToken,
+                                          AtomicInteger totalObjects) {
+        String configuredPrefix = config.initialCrawl().prefix().orElse(null);
+        String actualPrefix = (prefix != null && !prefix.isBlank()) ? prefix : configuredPrefix;
         int maxKeys = config.initialCrawl().maxKeysPerRequest();
+
+        ListObjectsV2Request.Builder requestBuilder = ListObjectsV2Request.builder()
+            .bucket(bucket)
+            .maxKeys(maxKeys);
+
+        if (actualPrefix != null && !actualPrefix.isBlank()) {
+            requestBuilder.prefix(actualPrefix);
+        }
+
+        if (continuationToken != null) {
+            requestBuilder.continuationToken(continuationToken);
+        }
+
+        ListObjectsV2Request request = requestBuilder.build();
+
+        return Uni.createFrom().completionStage(s3AsyncClient.listObjectsV2(request))
+            .flatMap(response -> handleListResponse(datasourceId, bucket, actualPrefix, response, totalObjects));
+    }
+
+    private Uni<Void> handleListResponse(String datasourceId,
+                                         String bucket,
+                                         String actualPrefix,
+                                         ListObjectsV2Response response,
+                                         AtomicInteger totalObjects) {
+        List<S3Object> contents = response.contents();
         
-        String continuationToken = null;
-        int totalObjects = 0;
-
-        do {
-            ListObjectsV2Request.Builder requestBuilder = ListObjectsV2Request.builder()
-                .bucket(bucket)
-                .maxKeys(maxKeys);
-
-            if (actualPrefix != null && !actualPrefix.isBlank()) {
-                requestBuilder.prefix(actualPrefix);
+        if (contents.isEmpty()) {
+            String nextToken = response.nextContinuationToken();
+            if (nextToken == null) {
+                return Uni.createFrom().voidItem()
+                    .invoke(() -> LOG.infof("Emitted %d crawl events for bucket=%s, prefix=%s",
+                        totalObjects.get(), bucket, actualPrefix));
             }
+            return crawlBucketInternal(datasourceId, bucket, actualPrefix, nextToken, totalObjects);
+        }
 
-            if (continuationToken != null) {
-                requestBuilder.continuationToken(continuationToken);
-            }
-
-            ListObjectsV2Request request = requestBuilder.build();
-            ListObjectsV2Response response = s3Client.listObjectsV2(request);
-
-            for (S3Object s3Object : response.contents()) {
+        // Convert each S3Object to a Uni<Void> for publishing
+        List<Uni<Void>> publishUnis = contents.stream()
+            .map(s3Object -> {
                 S3CrawlEvent event = createCrawlEvent(datasourceId, bucket, s3Object);
-                eventPublisher.publish(event);
-                totalObjects++;
-            }
+                totalObjects.incrementAndGet();
+                return eventPublisher.publish(event);
+            })
+            .collect(Collectors.toList());
 
-            continuationToken = response.nextContinuationToken();
-        } while (continuationToken != null);
+        // Combine all publish operations into a single Uni
+        Uni<Void> sendAll = Uni.combine().all().unis(publishUnis).discardItems();
 
-        LOG.infof("Emitted %d crawl events for bucket=%s, prefix=%s", totalObjects, bucket, actualPrefix);
-        return java.util.concurrent.CompletableFuture.completedFuture(null);
+        String nextToken = response.nextContinuationToken();
+        if (nextToken == null) {
+            return sendAll
+                .invoke(() -> LOG.infof("Emitted %d crawl events for bucket=%s, prefix=%s",
+                    totalObjects.get(), bucket, actualPrefix))
+                .replaceWithVoid();
+        }
+
+        return sendAll
+            .flatMap(ignored -> crawlBucketInternal(datasourceId, bucket, actualPrefix, nextToken, totalObjects));
     }
 
     private S3CrawlEvent createCrawlEvent(String datasourceId, String bucket, S3Object s3Object) {
@@ -110,31 +147,29 @@ public class S3CrawlService {
      * @param datasourceId datasource identifier
      * @param bucket bucket name
      * @param key object key
-     * @return completion stage for the crawl operation
+     * @return reactive Uni for the crawl operation
      */
-    public CompletionStage<Void> crawlObject(String datasourceId, String bucket, String key) {
+    public Uni<Void> crawlObject(String datasourceId, String bucket, String key) {
         LOG.infof("Crawling single S3 object: datasourceId=%s, bucket=%s, key=%s", datasourceId, bucket, key);
 
-        try {
-            // Get object metadata
-            var headObjectResponse = s3Client.headObject(builder -> builder
-                .bucket(bucket)
-                .key(key));
-
-            S3CrawlEvent event = eventPublisher.buildEvent(
-                datasourceId,
-                bucket,
-                key,
-                headObjectResponse.versionId(),
-                headObjectResponse.contentLength(),
-                headObjectResponse.eTag(),
-                headObjectResponse.lastModified()
-            );
-
-            return eventPublisher.publish(event);
-        } catch (Exception e) {
-            LOG.errorf(e, "Error crawling S3 object: bucket=%s, key=%s", bucket, key);
-            return java.util.concurrent.CompletableFuture.failedFuture(e);
-        }
+        return Uni.createFrom().completionStage(
+                s3AsyncClient.headObject(builder -> builder
+                    .bucket(bucket)
+                    .key(key)))
+            .flatMap(headObjectResponse -> {
+                S3CrawlEvent event = eventPublisher.buildEvent(
+                    datasourceId,
+                    bucket,
+                    key,
+                    headObjectResponse.versionId(),
+                    headObjectResponse.contentLength(),
+                    headObjectResponse.eTag(),
+                    headObjectResponse.lastModified()
+                );
+                return eventPublisher.publish(event);
+            })
+            .onFailure().invoke(error -> {
+                LOG.errorf(error, "Error crawling S3 object: bucket=%s, key=%s", bucket, key);
+            });
     }
 }

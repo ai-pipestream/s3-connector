@@ -1,0 +1,207 @@
+import org.gradle.plugins.signing.Sign
+
+plugins {
+    alias(libs.plugins.java)
+    alias(libs.plugins.quarkus)
+    alias(libs.plugins.maven.publish)
+    id 'signing'
+    alias(libs.plugins.nmcp.single)
+    alias(libs.plugins.axion.release)
+    alias(libs.plugins.proto.toolchain)
+}
+
+// Semantic versioning with axion-release
+scmVersion {
+    tag {
+        prefix = 'v'
+    }
+    checks {
+        uncommittedChanges = false
+        aheadOfRemote = false
+        snapshotDependencies = false
+    }
+}
+
+// Proto toolchain configuration - uses git-proto-workspace mode for pipestream-protos
+pipestreamProtos {
+    sourceMode = 'git-proto-workspace'
+    gitRepo = "https://github.com/ai-pipestream/pipestream-protos.git"
+    gitRef = "main"
+    generateMutiny = true
+    generateDescriptors = true
+
+    modules {
+        // Register s3-connector module from the workspace
+        register("s3-connector")
+    }
+}
+
+dependencies {
+    // Import pipeline BOM to align all managed versions
+    // Version defined in gradle.properties as single source of truth
+    implementation platform("ai.pipestream:pipestream-bom:${pipestreamBomVersion}")
+    // Import Amazon Services BOM for S3
+    implementation platform("io.quarkus.platform:quarkus-amazon-services-bom:${quarkusPlatformVersion}")
+    
+    implementation 'io.quarkus:quarkus-container-image-docker'
+
+    // Core Quarkus dependencies
+    implementation libs.quarkus.arc
+    implementation libs.quarkus.rest
+    implementation 'io.quarkus:quarkus-smallrye-health'
+    implementation 'io.quarkus:quarkus-config-yaml'
+    
+    // AWS S3 dependencies (from Amazon Services BOM)
+    implementation 'io.quarkiverse.amazonservices:quarkus-amazon-s3'
+    implementation 'software.amazon.awssdk:s3'
+    // HTTP client implementation required by Quarkus Amazon Services extension
+    implementation 'software.amazon.awssdk:url-connection-client'
+    
+    // Kafka dependencies
+    implementation 'io.quarkus:quarkus-messaging-kafka'
+    // Quarkus Apicurio Registry Protobuf Extension (Zero-Config)
+    // Version managed by pipestream-bom
+    implementation 'ai.pipestream:quarkus-apicurio-registry-protobuf'
+
+    // HTTP Client for multipart uploads to connector-intake-service
+    implementation 'io.quarkus:quarkus-rest-client'
+
+    // Pipestream platform libraries (managed via BOM)
+    // Pipestream devservices extension - version managed by pipestream-bom
+    implementation 'ai.pipestream:pipestream-quarkus-devservices'
+    implementation 'ai.pipestream:pipestream-service-registration'
+
+    // Test dependencies
+    testImplementation platform("ai.pipestream:pipestream-bom:${pipestreamBomVersion}")
+    testImplementation libs.quarkus.junit5
+    testImplementation libs.rest.assured
+    testImplementation libs.awaitility
+    testImplementation libs.apicurio.registry.protobuf.serde
+    testImplementation(testFixtures("ai.pipestream:pipestream-test-support:${pipestreamBomVersion}"))
+    // Testcontainers - version managed by pipestream-bom
+    testImplementation 'org.testcontainers:testcontainers'
+    testImplementation 'org.testcontainers:minio'
+}
+
+
+group = 'ai.pipestream'
+version = "${scmVersion.version}"
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+    withJavadocJar()
+    withSourcesJar()
+}
+
+test {
+    systemProperty "java.util.logging.manager", "org.jboss.logmanager.LogManager"
+    systemProperty "pipestream.wiremock.image", "docker.io/pipestreamai/pipestream-wiremock-server:0.1.30"
+    environment "TESTCONTAINERS_RYUK_DISABLED", "false"
+
+    // Add JVM option for JDK 24+
+    def javaVersion = JavaVersion.current().majorVersion.toInteger()
+    if (javaVersion >= 24) {
+        jvmArgs '--add-opens', 'java.base/java.lang=ALL-UNNAMED'
+    }
+}
+
+compileJava {
+    options.encoding = 'UTF-8'
+    options.compilerArgs << '-parameters'
+}
+
+compileTestJava {
+    options.encoding = 'UTF-8'
+}
+
+// Configure Javadoc task to exclude auto-generated code
+tasks.withType(Javadoc).configureEach { task ->
+    def opts = task.options
+    opts.encoding = 'UTF-8'
+    opts.charSet = 'UTF-8'
+    opts.locale = 'en'
+
+    // Only include actual source code (excludes generated Protobuf/gRPC code)
+    include '**/ai/pipestream/connector/s3/**'
+}
+
+// Publishing configuration
+publishing {
+    publications {
+        maven(MavenPublication) { publication ->
+            from components.java
+            pom {
+                name.set('S3 Connector')
+                description.set('S3 connector service for crawling S3 buckets and processing objects via connector-intake-service')
+                url.set('https://github.com/ai-pipestream/s3-connector')
+
+                licenses {
+                    license {
+                        name.set('MIT License')
+                        url.set('https://opensource.org/license/mit')
+                    }
+                }
+
+                developers {
+                    developer {
+                        id.set('krickert')
+                        name.set('Pipestream Engine Team')
+                    }
+                }
+
+                scm {
+                    connection.set('scm:git:git://github.com/ai-pipestream/s3-connector.git')
+                    developerConnection.set('scm:git:ssh://github.com/ai-pipestream/s3-connector.git')
+                    url.set('https://github.com/ai-pipestream/s3-connector')
+                }
+            }
+        }
+    }
+    repositories {
+        mavenLocal()
+
+        // GitHub Packages
+        def ghRepo = System.getenv('GITHUB_REPOSITORY') ?: 'ai-pipestream/s3-connector'
+        def ghActor = System.getenv('GITHUB_ACTOR') ?: (project.findProperty('gpr.user') ?: System.getenv('GPR_USER'))
+        def ghToken = System.getenv('GITHUB_TOKEN') ?: (project.findProperty('gpr.key') ?: System.getenv('GPR_TOKEN'))
+        if (ghActor && ghToken) {
+            maven {
+                name = 'GitHubPackages'
+                url = uri("https://maven.pkg.github.com/${ghRepo}")
+                credentials {
+                    username = ghActor
+                    password = ghToken
+                }
+            }
+        }
+    }
+}
+
+// GPG Signing (uses org-level secrets)
+signing {
+    def signingKey = System.getenv("GPG_PRIVATE_KEY")
+    def signingPassword = System.getenv("GPG_PASSPHRASE")
+
+    if (signingKey && signingPassword) {
+        useInMemoryPgpKeys(signingKey, signingPassword)
+        sign publishing.publications.maven
+    }
+}
+
+// Ensure signing tasks run before NMCP publication
+afterEvaluate {
+    tasks.matching { it.name.startsWith("nmcpZipAllPublications") || it.name.startsWith("nmcpPublishAllPublicationsToCentralPortal") }
+        .configureEach { nmcpTask ->
+            nmcpTask.dependsOn(tasks.withType(Sign))
+        }
+}
+
+// Maven Central publishing via NMCP
+nmcp {
+    publishAllPublicationsToCentralPortal {
+        username = providers.environmentVariable("MAVEN_CENTRAL_USERNAME")
+        password = providers.environmentVariable("MAVEN_CENTRAL_PASSWORD")
+        publishingType = "AUTOMATIC"
+    }
+}

@@ -59,6 +59,11 @@ public class MinioTestResource implements QuarkusTestResourceLifecycleManager {
         }
     }
 
+    /**
+     * Get the MinIO endpoint URL.
+     *
+     * @return endpoint URL or null if container is not running
+     */
     public String getEndpoint() {
         if (minio == null || !minio.isRunning()) {
             return null;
@@ -66,14 +71,29 @@ public class MinioTestResource implements QuarkusTestResourceLifecycleManager {
         return "http://" + minio.getHost() + ":" + minio.getMappedPort(9000);
     }
 
+    /**
+     * Get the default test bucket name.
+     *
+     * @return bucket name
+     */
     public String getBucket() {
         return BUCKET;
     }
 
+    /**
+     * Get the MinIO access key.
+     *
+     * @return access key
+     */
     public String getAccessKey() {
         return ACCESS_KEY;
     }
 
+    /**
+     * Get the MinIO secret key.
+     *
+     * @return secret key
+     */
     public String getSecretKey() {
         return SECRET_KEY;
     }

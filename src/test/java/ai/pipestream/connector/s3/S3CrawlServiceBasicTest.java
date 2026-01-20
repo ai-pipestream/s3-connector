@@ -22,7 +22,30 @@ import java.nio.charset.StandardCharsets;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Basic test to verify MinIO setup and S3CrawlService configuration works.
+ * Basic integration test for S3 crawl service with MinIO.
+ * <p>
+ * This test verifies that the {@link S3CrawlService} can successfully crawl
+ * a MinIO bucket, create crawl events, and publish them to Kafka. It tests
+ * the complete integration between datasource configuration, S3 client creation,
+ * bucket crawling, and event publishing.
+ * </p>
+ *
+ * <h2>Test Setup</h2>
+ * <p>
+ * Uses {@link MinioTestResource} to provide a local MinIO instance with
+ * test data and credentials.
+ * </p>
+ *
+ * <h2>Test Coverage</h2>
+ * <ul>
+ *   <li>Datasource configuration registration</li>
+ *   <li>S3 client creation and caching</li>
+ *   <li>Bucket crawling with object discovery</li>
+ *   <li>Crawl event creation and publishing</li>
+ *   <li>Kafka message production</li>
+ * </ul>
+ *
+ * @since 1.0.0
  */
 @QuarkusTest
 @QuarkusTestResource(MinioTestResource.class)

@@ -15,6 +15,27 @@ import java.util.Map;
 
 /**
  * Test resource for setting up MinIO container to simulate AWS S3 API.
+ * <p>
+ * This resource manages a MinIO container that provides an S3-compatible API
+ * for testing. It creates a test bucket, configures Quarkus S3 extension properties
+ * for MinIO access, and provides test data for integration tests.
+ * </p>
+ *
+ * <h2>Container Configuration</h2>
+ * <ul>
+ *   <li>MinIO version: RELEASE.2025-01-20T14-49-07Z</li>
+ *   <li>Default credentials: minioadmin/minioadmin</li>
+ *   <li>Test bucket: test-bucket</li>
+ *   <li>Path-style access enabled</li>
+ * </ul>
+ *
+ * <h2>Test Data</h2>
+ * <p>
+ * Creates sample objects in the test bucket with various prefixes and content
+ * types to support different test scenarios.
+ * </p>
+ *
+ * @since 1.0.0
  */
 public class MinioTestResource implements QuarkusTestResourceLifecycleManager {
 

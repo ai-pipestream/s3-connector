@@ -18,13 +18,36 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Service for testing S3 bucket connectivity and counting documents.
+ * Service for testing S3 bucket connectivity and performing dry-run crawls.
  * <p>
- * Used by the TestBucketCrawl gRPC method to validate S3 connection configuration
- * and optionally count objects in a bucket without emitting crawl events.
+ * This service validates S3 connection configurations and provides testing capabilities
+ * for the {@code TestBucketCrawl} gRPC method. It can perform connectivity tests and
+ * optionally count all objects in a bucket without emitting crawl events to Kafka.
+ * </p>
+ *
+ * <h2>Test Modes</h2>
+ * <ul>
+ *   <li><strong>Connectivity Test</strong>: Validates S3 credentials and bucket access</li>
+ *   <li><strong>Dry Run</strong>: Counts all objects in the bucket with optional prefix filtering</li>
+ *   <li><strong>Sample Collection</strong>: Returns sample object keys for verification</li>
+ * </ul>
+ *
+ * <h2>Resource Management</h2>
+ * <p>
+ * The service creates temporary S3 clients for testing that are properly closed
+ * after use, ensuring no resource leaks during testing operations.
+ * </p>
+ *
+ * @since 1.0.0
  */
 @ApplicationScoped
 public class S3TestCrawlService {
+
+    /**
+     * Default constructor for CDI injection.
+     */
+    public S3TestCrawlService() {
+    }
 
     private static final Logger LOG = Logger.getLogger(S3TestCrawlService.class);
 
@@ -32,14 +55,21 @@ public class S3TestCrawlService {
     S3ClientFactory clientFactory;
 
     /**
-     * Test S3 bucket connectivity and optionally count documents.
+     * Tests S3 bucket connectivity and optionally performs a dry-run crawl.
+     * <p>
+     * This method validates the S3 connection configuration by attempting to
+     * access the specified bucket. In dry-run mode, it counts all objects matching
+     * the optional prefix filter. Otherwise, it returns a sample of object keys
+     * from the first page of results.
+     * </p>
      *
-     * @param config S3 connection configuration
-     * @param bucket bucket name
-     * @param prefix optional prefix filter
-     * @param dryRun whether to count documents without emitting events
-     * @param maxSample maximum number of sample object keys to return
-     * @return test result with connectivity status and document count
+     * @param config the S3 connection configuration to test
+     * @param bucket the name of the S3 bucket to test access to
+     * @param prefix optional prefix filter for objects (may be null)
+     * @param dryRun if true, counts all objects; if false, returns sample keys
+     * @param maxSample maximum number of sample object keys to collect (0 for all)
+     * @return a {@link Uni} that completes with the test results in a {@link TestBucketCrawlResponse}
+     * @since 1.0.0
      */
     public Uni<TestBucketCrawlResponse> testBucketCrawl(
             S3ConnectionConfig config,
@@ -52,37 +82,31 @@ public class S3TestCrawlService {
             bucket, prefix, dryRun, maxSample);
 
         // Create a temporary test client (not cached)
-        S3AsyncClient testClient = clientFactory.createTestClient(config);
-
-        try {
-            return performTest(testClient, bucket, prefix, dryRun, maxSample)
-                .onFailure().invoke(error -> {
-                    LOG.errorf(error, "S3 test failed: bucket=%s, prefix=%s", bucket, prefix);
-                    // Close the test client on failure
-                    try {
-                        testClient.close();
-                    } catch (Exception e) {
-                        LOG.warnf(e, "Error closing test S3 client");
-                    }
-                })
-                .onTermination().invoke(() -> {
-                    // Always close the test client
-                    try {
-                        testClient.close();
-                        LOG.debug("Closed test S3 client");
-                    } catch (Exception e) {
-                        LOG.warnf(e, "Error closing test S3 client");
-                    }
-                });
-        } catch (Exception e) {
-            // If client creation itself fails, close it and return error
-            try {
-                testClient.close();
-            } catch (Exception closeError) {
-                LOG.warnf(closeError, "Error closing test S3 client");
-            }
-            return Uni.createFrom().item(createErrorResponse("Failed to create S3 client: " + e.getMessage()));
-        }
+        return clientFactory.createTestClient(config)
+            .flatMap(testClient ->
+                performTest(testClient, bucket, prefix, dryRun, maxSample)
+                    .onFailure().invoke(error -> {
+                        LOG.errorf(error, "S3 test failed: bucket=%s, prefix=%s", bucket, prefix);
+                        // Close the test client on failure
+                        try {
+                            testClient.close();
+                        } catch (Exception e) {
+                            LOG.warnf(e, "Error closing test S3 client");
+                        }
+                    })
+                    .onTermination().invoke(() -> {
+                        // Always close the test client
+                        try {
+                            testClient.close();
+                            LOG.debug("Closed test S3 client");
+                        } catch (Exception e) {
+                            LOG.warnf(e, "Error closing test S3 client");
+                        }
+                    })
+            )
+            .onFailure().recoverWithItem(error ->
+                createErrorResponse("Failed to create S3 client: " + error.getMessage())
+            );
     }
 
     private Uni<TestBucketCrawlResponse> performTest(

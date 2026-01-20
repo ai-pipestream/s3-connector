@@ -127,7 +127,12 @@ tasks.withType(Javadoc).configureEach { task ->
     opts.locale = 'en'
 
     // Only include actual source code (excludes generated Protobuf/gRPC code)
-    include '**/ai/pipestream/connector/s3/**'
+    // Include all connector.s3 packages except the generated v1 protobuf package
+    include '**/ai/pipestream/connector/s3/grpc/**'
+    include '**/ai/pipestream/connector/s3/service/**'
+    include '**/ai/pipestream/connector/s3/config/**'
+    include '**/ai/pipestream/connector/s3/client/**'
+    include '**/ai/pipestream/connector/s3/events/**'
 }
 
 // Publishing configuration

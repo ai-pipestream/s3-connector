@@ -18,10 +18,43 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
- * Service for crawling S3 buckets and emitting crawl events.
+ * Service for crawling S3 buckets and emitting crawl events to Kafka.
+ * <p>
+ * This service provides the core crawling functionality for the S3 connector,
+ * supporting both initial bucket crawls and individual object processing.
+ * It discovers S3 objects, creates crawl events, and publishes them to Kafka
+ * for downstream processing by the connector-intake-service.
+ * </p>
+ *
+ * <h2>Crawl Modes</h2>
+ * <ul>
+ *   <li><strong>Bucket Crawl</strong>: Lists all objects in a bucket with optional prefix filtering</li>
+ *   <li><strong>Object Crawl</strong>: Processes a single S3 object with full metadata</li>
+ * </ul>
+ *
+ * <h2>Pagination</h2>
+ * <p>
+ * Bucket crawling uses S3's ListObjectsV2 API with continuation tokens to handle
+ * buckets with large numbers of objects. Objects are processed in batches based
+ * on the configured {@code maxKeysPerRequest} setting.
+ * </p>
+ *
+ * <h2>Event Publishing</h2>
+ * <p>
+ * Each discovered object generates an {@link S3CrawlEvent} that is published to
+ * the "s3-crawl-events-out" Kafka topic for consumption by the event processing pipeline.
+ * </p>
+ *
+ * @since 1.0.0
  */
 @ApplicationScoped
 public class S3CrawlService {
+
+    /**
+     * Default constructor for CDI injection.
+     */
+    public S3CrawlService() {
+    }
 
     private static final Logger LOG = Logger.getLogger(S3CrawlService.class);
 
@@ -38,13 +71,24 @@ public class S3CrawlService {
     S3ConnectorConfig config;
 
     /**
-     * Perform initial/recrawl of an S3 bucket.
-     * Lists all objects matching the prefix and emits crawl events for each.
+     * Performs a complete crawl of an S3 bucket and emits crawl events for all discovered objects.
+     * <p>
+     * This method lists all objects in the specified bucket that match the optional prefix filter
+     * and emits a {@link S3CrawlEvent} for each object to Kafka. The crawl uses pagination to
+     * handle buckets with large numbers of objects efficiently.
+     * </p>
      *
-     * @param datasourceId datasource identifier
-     * @param bucket bucket name
-     * @param prefix optional prefix filter (may be null/empty)
-     * @return reactive Uni for the crawl operation
+     * <h4>Prefix Resolution</h4>
+     * <p>
+     * The prefix parameter takes precedence over the configured prefix in {@link S3ConnectorConfig}.
+     * If both are null or empty, all objects in the bucket are crawled.
+     * </p>
+     *
+     * @param datasourceId the unique identifier for the datasource
+     * @param bucket the name of the S3 bucket to crawl
+     * @param prefix optional prefix filter for objects (may be null or empty)
+     * @return a {@link Uni} that completes when all objects have been processed and events emitted
+     * @since 1.0.0
      */
     public Uni<Void> crawlBucket(String datasourceId, String bucket, String prefix) {
         LOG.infof("Starting S3 crawl: datasourceId=%s, bucket=%s, prefix=%s", datasourceId, bucket, prefix);
@@ -61,31 +105,32 @@ public class S3CrawlService {
                                           String continuationToken,
                                           AtomicInteger totalObjects) {
         return datasourceConfigService.getDatasourceConfig(datasourceId)
-            .flatMap(datasourceConfig -> {
+            .flatMap(datasourceConfig ->
                 // Get datasource-specific S3 client
-                S3AsyncClient client = clientFactory.getOrCreateClient(datasourceId, datasourceConfig.s3Config());
+                clientFactory.getOrCreateClient(datasourceId, datasourceConfig.s3Config())
+                    .flatMap(client -> {
+                                String configuredPrefix = config.initialCrawl().prefix().orElse(null);
+                        String actualPrefix = (prefix != null && !prefix.isBlank()) ? prefix : configuredPrefix;
+                        int maxKeys = config.initialCrawl().maxKeysPerRequest();
 
-                String configuredPrefix = config.initialCrawl().prefix().orElse(null);
-                String actualPrefix = (prefix != null && !prefix.isBlank()) ? prefix : configuredPrefix;
-                int maxKeys = config.initialCrawl().maxKeysPerRequest();
+                        ListObjectsV2Request.Builder requestBuilder = ListObjectsV2Request.builder()
+                            .bucket(bucket)
+                            .maxKeys(maxKeys);
 
-                ListObjectsV2Request.Builder requestBuilder = ListObjectsV2Request.builder()
-                    .bucket(bucket)
-                    .maxKeys(maxKeys);
+                        if (actualPrefix != null && !actualPrefix.isBlank()) {
+                            requestBuilder.prefix(actualPrefix);
+                        }
 
-                if (actualPrefix != null && !actualPrefix.isBlank()) {
-                    requestBuilder.prefix(actualPrefix);
-                }
+                        if (continuationToken != null) {
+                            requestBuilder.continuationToken(continuationToken);
+                        }
 
-                if (continuationToken != null) {
-                    requestBuilder.continuationToken(continuationToken);
-                }
+                        ListObjectsV2Request request = requestBuilder.build();
 
-                ListObjectsV2Request request = requestBuilder.build();
-
-                return Uni.createFrom().completionStage(client.listObjectsV2(request))
-                    .flatMap(response -> handleListResponse(datasourceId, bucket, actualPrefix, response, totalObjects));
-            });
+                        return Uni.createFrom().completionStage(client.listObjectsV2(request))
+                            .flatMap(response -> handleListResponse(datasourceId, bucket, actualPrefix, response, totalObjects));
+                    })
+            );
     }
 
     private Uni<Void> handleListResponse(String datasourceId,
@@ -151,25 +196,38 @@ public class S3CrawlService {
     }
 
     /**
-     * Crawl a single S3 object (for event-driven mode or manual triggers).
+     * Crawls a single S3 object and emits a crawl event for it.
+     * <p>
+     * This method retrieves complete metadata for a specific S3 object using the
+     * HeadObject API (which includes version ID information not available in list operations)
+     * and emits a single {@link S3CrawlEvent} to Kafka.
+     * </p>
      *
-     * @param datasourceId datasource identifier
-     * @param bucket bucket name
-     * @param key object key
-     * @return reactive Uni for the crawl operation
+     * <h4>Use Cases</h4>
+     * <ul>
+     *   <li>Event-driven crawling triggered by S3 notifications</li>
+     *   <li>Manual processing of specific objects</li>
+     *   <li>Re-processing of individual objects</li>
+     * </ul>
+     *
+     * @param datasourceId the unique identifier for the datasource
+     * @param bucket the name of the S3 bucket containing the object
+     * @param key the S3 object key to crawl
+     * @return a {@link Uni} that completes when the object has been processed and event emitted
+     * @since 1.0.0
      */
     public Uni<Void> crawlObject(String datasourceId, String bucket, String key) {
         LOG.infof("Crawling single S3 object: datasourceId=%s, bucket=%s, key=%s", datasourceId, bucket, key);
 
         return datasourceConfigService.getDatasourceConfig(datasourceId)
-            .flatMap(datasourceConfig -> {
+            .flatMap(datasourceConfig ->
                 // Get datasource-specific S3 client
-                S3AsyncClient client = clientFactory.getOrCreateClient(datasourceId, datasourceConfig.s3Config());
-
-                return Uni.createFrom().completionStage(
-                        client.headObject(builder -> builder
-                            .bucket(bucket)
-                            .key(key)))
+                clientFactory.getOrCreateClient(datasourceId, datasourceConfig.s3Config())
+                    .flatMap(client ->
+                        Uni.createFrom().completionStage(
+                                client.headObject(builder -> builder
+                                    .bucket(bucket)
+                                    .key(key)))
                     .flatMap(headObjectResponse -> {
                         S3CrawlEvent event = eventPublisher.buildEvent(
                             datasourceId,
@@ -182,9 +240,10 @@ public class S3CrawlService {
                         );
                         return eventPublisher.publish(event);
                     })
-                    .onFailure().invoke(error -> {
-                        LOG.errorf(error, "Error crawling S3 object: bucket=%s, key=%s", bucket, key);
-                    });
-            });
+                            .onFailure().invoke(error -> {
+                                LOG.errorf(error, "Error crawling S3 object: bucket=%s, key=%s", bucket, key);
+                            })
+                    )
+            );
     }
 }

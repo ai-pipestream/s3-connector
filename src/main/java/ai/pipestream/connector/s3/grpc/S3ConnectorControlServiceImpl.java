@@ -20,10 +20,36 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * gRPC control surface for unmanaged S3 connector crawls.
+ * gRPC service implementation for S3 connector control operations.
+ * <p>
+ * This service provides the control surface for unmanaged S3 connector crawls,
+ * allowing external clients to trigger bucket crawling and testing operations.
+ * It implements the {@link MutinyS3ConnectorControlServiceGrpc.S3ConnectorControlServiceImplBase}
+ * using Mutiny for reactive programming.
+ * </p>
+ *
+ * <h2>Authentication</h2>
+ * <p>
+ * All requests require authentication via the {@code x-api-key} header.
+ * The API key is validated and used for datasource registration and authorization.
+ * </p>
+ *
+ * <h2>Supported Operations</h2>
+ * <ul>
+ *   <li>{@link #startCrawl(StartCrawlRequest)} - Initiates a bucket crawl operation</li>
+ *   <li>{@link #testBucketCrawl(TestBucketCrawlRequest)} - Tests connectivity and samples objects</li>
+ * </ul>
+ *
+ * @since 1.0.0
  */
 @GrpcService
 public class S3ConnectorControlServiceImpl extends MutinyS3ConnectorControlServiceGrpc.S3ConnectorControlServiceImplBase {
+
+    /**
+     * Default constructor for CDI injection.
+     */
+    public S3ConnectorControlServiceImpl() {
+    }
 
     private static final Logger LOG = Logger.getLogger(S3ConnectorControlServiceImpl.class);
 
@@ -36,6 +62,36 @@ public class S3ConnectorControlServiceImpl extends MutinyS3ConnectorControlServi
     @Inject
     S3TestCrawlService testCrawlService;
 
+    /**
+     * Initiates a crawl operation for an S3 bucket.
+     * <p>
+     * This method starts an asynchronous crawl of the specified S3 bucket, discovering
+     * and processing all objects matching the optional prefix filter. The crawl operation
+     * runs in the background and emits events for each discovered object.
+     * </p>
+     *
+     * <h4>Request Validation</h4>
+     * <ul>
+     *   <li>{@code datasource_id} - Required (from header or request body)</li>
+     *   <li>{@code x-api-key} - Required (from header)</li>
+     *   <li>{@code connection_config} - Required</li>
+     *   <li>{@code bucket} - Required</li>
+     *   <li>{@code prefix} - Optional prefix filter</li>
+     *   <li>{@code request_id} - Optional, auto-generated if not provided</li>
+     * </ul>
+     *
+     * <h4>Side Effects</h4>
+     * <ul>
+     *   <li>Registers/updates datasource configuration</li>
+     *   <li>Starts background crawl operation</li>
+     *   <li>Publishes crawl events to Kafka</li>
+     * </ul>
+     *
+     * @param request the {@link StartCrawlRequest} containing crawl parameters
+     * @return a {@link Uni} that completes with {@link StartCrawlResponse} indicating
+     *         whether the crawl was accepted, or fails with a gRPC status exception
+     * @since 1.0.0
+     */
     @Override
     public Uni<StartCrawlResponse> startCrawl(StartCrawlRequest request) {
         String headerApiKey = GrpcRequestContext.API_KEY.get();
@@ -54,16 +110,13 @@ public class S3ConnectorControlServiceImpl extends MutinyS3ConnectorControlServi
                 .asRuntimeException());
         }
 
-        // For now, create default MinIO config for testing
-        // TODO: Use request.getConnectionConfig() when proto is updated
-        S3ConnectionConfig connectionConfig = S3ConnectionConfig.newBuilder()
-            .setCredentialsType("static")
-            .setAccessKeyId("minioadmin")
-            .setSecretAccessKey("minioadmin")
-            .setRegion("us-east-1")
-            .setEndpointOverride("http://localhost:9000")  // Will be injected from test resource
-            .setPathStyleAccess(true)
-            .build();
+        // Use connection config from request
+        S3ConnectionConfig connectionConfig = request.getConnectionConfig();
+        if (connectionConfig == null) {
+            return Uni.createFrom().failure(Status.INVALID_ARGUMENT
+                .withDescription("connection_config is required")
+                .asRuntimeException());
+        }
 
         String bucket = firstNonBlank(request.getBucket());
         if (bucket == null) {
@@ -89,6 +142,15 @@ public class S3ConnectorControlServiceImpl extends MutinyS3ConnectorControlServi
                 .build());
     }
 
+    /**
+     * Creates a protobuf Timestamp for the current instant.
+     * <p>
+     * Utility method for generating protobuf timestamp messages
+     * representing the current time.
+     * </p>
+     *
+     * @return a {@link Timestamp} protobuf message for the current time
+     */
     private static Timestamp now() {
         Instant now = Instant.now();
         return Timestamp.newBuilder()
@@ -97,6 +159,36 @@ public class S3ConnectorControlServiceImpl extends MutinyS3ConnectorControlServi
             .build();
     }
 
+    /**
+     * Tests S3 bucket connectivity and optionally samples objects.
+     * <p>
+     * This method validates S3 connection parameters and performs a test crawl
+     * to verify access to the bucket. In dry-run mode, it counts objects without
+     * emitting events. Otherwise, it returns a sample of discovered object keys.
+     * </p>
+     *
+     * <h4>Request Validation</h4>
+     * <ul>
+     *   <li>{@code bucket} - Required</li>
+     *   <li>{@code connection_config} - Required</li>
+     *   <li>{@code prefix} - Optional prefix filter</li>
+     *   <li>{@code dry_run} - Optional, defaults to false</li>
+     *   <li>{@code max_sample} - Optional, defaults to 100</li>
+     * </ul>
+     *
+     * <h4>Test Behavior</h4>
+     * <ul>
+     *   <li>Validates S3 credentials and bucket access</li>
+     *   <li>Lists objects with optional prefix filtering</li>
+     *   <li>In dry-run mode: returns total object count</li>
+     *   <li>In normal mode: returns sample object keys</li>
+     * </ul>
+     *
+     * @param request the {@link TestBucketCrawlRequest} containing test parameters
+     * @return a {@link Uni} that completes with {@link TestBucketCrawlResponse} containing
+     *         test results, or fails with a gRPC status exception
+     * @since 1.0.0
+     */
     @Override
     public Uni<TestBucketCrawlResponse> testBucketCrawl(TestBucketCrawlRequest request) {
         LOG.infof("Received TestBucketCrawl request: bucket=%s, prefix=%s, dryRun=%s, maxSample=%d",
@@ -129,6 +221,17 @@ public class S3ConnectorControlServiceImpl extends MutinyS3ConnectorControlServi
         );
     }
 
+    /**
+     * Returns the first non-blank string from the provided values.
+     * <p>
+     * Utility method for selecting the first non-null, non-blank string
+     * from a variable number of arguments. Useful for implementing
+     * header/request body precedence logic.
+     * </p>
+     *
+     * @param values the string values to check, in order of preference
+     * @return the first non-blank string, or null if all values are blank or null
+     */
     private static String firstNonBlank(String... values) {
         for (String value : values) {
             if (value != null && !value.isBlank()) {

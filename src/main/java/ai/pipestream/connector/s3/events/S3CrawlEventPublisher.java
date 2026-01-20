@@ -16,12 +16,35 @@ import java.time.Instant;
 import java.util.HexFormat;
 
 /**
- * Publisher for S3 crawl events to Kafka.
+ * Publisher for S3 crawl events to Kafka using Protobuf serialization.
  * <p>
- * Uses Protobuf serialization via Apicurio Registry.
+ * This service publishes {@link S3CrawlEvent} messages to Kafka topics for downstream
+ * processing by the pipeline. Events are serialized using Protocol Buffers and
+ * sent through the Apicurio Registry integration for schema management.
+ * </p>
+ *
+ * <h2>Event Publishing</h2>
+ * <p>
+ * Events are published asynchronously using Mutiny's reactive programming model.
+ * Each event represents a discovered S3 object that should be processed by the pipeline.
+ * </p>
+ *
+ * <h2>Event ID Generation</h2>
+ * <p>
+ * Event IDs are deterministically generated using SHA-256 hashing of key metadata
+ * (datasource ID, bucket, key, version ID, and timestamp) to ensure idempotent processing.
+ * </p>
+ *
+ * @since 1.0.0
  */
 @ApplicationScoped
 public class S3CrawlEventPublisher {
+
+    /**
+     * Default constructor for CDI injection.
+     */
+    public S3CrawlEventPublisher() {
+    }
 
     private static final Logger LOG = Logger.getLogger(S3CrawlEventPublisher.class);
 
@@ -30,10 +53,17 @@ public class S3CrawlEventPublisher {
     ProtobufEmitter<S3CrawlEvent> eventEmitter;
 
     /**
-     * Publish an S3 crawl event.
+     * Publishes an S3 crawl event to the configured Kafka topic.
+     * <p>
+     * The event is serialized using Protocol Buffers and sent asynchronously
+     * to the "s3-crawl-events-out" channel. If publishing fails, the error
+     * is logged but does not throw an exception to avoid interrupting crawl operations.
+     * </p>
      *
-     * @param event the crawl event protobuf message to publish
-     * @return a reactive {@link Uni} handle for the send operation
+     * @param event the {@link S3CrawlEvent} protobuf message to publish
+     * @return a {@link Uni} that completes when the event has been sent,
+     *         or fails if the send operation encounters an error
+     * @since 1.0.0
      */
     public Uni<Void> publish(S3CrawlEvent event) {
         LOG.debugf("Publishing S3 crawl event: datasourceId=%s, sourceUrl=%s", 
@@ -48,16 +78,22 @@ public class S3CrawlEventPublisher {
     }
 
     /**
-     * Build an S3CrawlEvent from S3 object metadata.
+     * Builds an {@link S3CrawlEvent} protobuf message from S3 object metadata.
+     * <p>
+     * Creates a complete crawl event with all required fields including a
+     * deterministically generated event ID and properly formatted source URL.
+     * The event timestamp is set to the current time when this method is called.
+     * </p>
      *
-     * @param datasourceId datasource identifier
-     * @param bucket S3 bucket name
-     * @param key S3 object key
-     * @param versionId S3 version ID (may be null)
-     * @param sizeBytes object size in bytes
-     * @param etag object ETag
-     * @param lastModified last modified timestamp
-     * @return S3CrawlEvent protobuf message
+     * @param datasourceId the unique identifier for the datasource
+     * @param bucket the S3 bucket name containing the object
+     * @param key the S3 object key (path within the bucket)
+     * @param versionId the S3 version ID for versioned objects, may be null
+     * @param sizeBytes the size of the object in bytes
+     * @param etag the S3 ETag for the object
+     * @param lastModified the last modified timestamp of the object
+     * @return a fully constructed {@link S3CrawlEvent} protobuf message
+     * @since 1.0.0
      */
     public S3CrawlEvent buildEvent(String datasourceId, String bucket, String key,
                                    String versionId, long sizeBytes, String etag, Instant lastModified) {

@@ -23,9 +23,28 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * HTTP client for uploading objects to connector-intake-service.
+ * HTTP client for uploading S3 objects to the connector-intake-service.
  * <p>
- * Performs raw uploads via HTTP POST to /uploads/raw endpoint with headers.
+ * This client handles the HTTP communication with the connector-intake-service
+ * for uploading crawled S3 objects. It performs raw HTTP POST requests to the
+ * {@code /uploads/raw} endpoint with appropriate headers for object metadata.
+ * </p>
+ *
+ * <h2>Features</h2>
+ * <ul>
+ *   <li>Streaming upload of S3 objects with known content length</li>
+ *   <li>Reactive API using Mutiny Uni</li>
+ *   <li>Automatic header injection for datasource identification</li>
+ *   <li>Configurable timeouts and endpoints</li>
+ * </ul>
+ *
+ * <h2>Thread Safety</h2>
+ * <p>
+ * This class is thread-safe and can be used concurrently from multiple threads.
+ * The underlying {@link HttpClient} instance is shared and immutable.
+ * </p>
+ *
+ * @since 1.0.0
  */
 @ApplicationScoped
 public class ConnectorIntakeClient {
@@ -38,6 +57,13 @@ public class ConnectorIntakeClient {
     @Inject
     S3ConnectorConfig config;
 
+    /**
+     * Creates a new ConnectorIntakeClient with default HTTP client configuration.
+     * <p>
+     * Initializes an HTTP client with HTTP/1.1 version for compatibility
+     * with the connector-intake-service.
+     * </p>
+     */
     public ConnectorIntakeClient() {
         this.httpClient = HttpClient.newBuilder()
             .version(HttpClient.Version.HTTP_1_1)
@@ -45,19 +71,36 @@ public class ConnectorIntakeClient {
     }
 
     /**
-     * Upload an S3 object to connector-intake-service via HTTP raw upload.
+     * Uploads an S3 object to the connector-intake-service via HTTP raw upload.
      * <p>
-     * Sends the object content as raw body with required headers.
+     * This method streams the S3 object content as a raw HTTP POST request body
+     * to the configured intake service endpoint. All necessary headers are automatically
+     * injected for proper object identification and processing.
+     * </p>
      *
-     * @param datasourceId datasource identifier
-     * @param apiKey API key for authentication
-     * @param sourceUrl S3 source URL (e.g., "s3://bucket/key")
-     * @param bucket S3 bucket name
-     * @param key S3 object key
-     * @param contentType content type (may be null)
-     * @param sizeBytes object size in bytes
-     * @param bodyInputStream input stream for object content
-     * @return response with status code and body
+     * <h4>Headers Injected</h4>
+     * <ul>
+     *   <li>{@code x-datasource-id} - Datasource identifier</li>
+     *   <li>{@code x-api-key} - API key for authentication</li>
+     *   <li>{@code x-source-uri} - S3 source URL</li>
+     *   <li>{@code x-source-path} - S3 object key</li>
+     *   <li>{@code x-filename} - S3 object key (for filename)</li>
+     *   <li>{@code x-request-id} - Unique request identifier</li>
+     *   <li>{@code Content-Type} - Object content type (if provided)</li>
+     *   <li>{@code Content-Length} - Object size in bytes</li>
+     * </ul>
+     *
+     * @param datasourceId the datasource identifier for tracking and authorization
+     * @param apiKey the API key for authenticating with the intake service
+     * @param sourceUrl the S3 source URL in format "s3://bucket/key"
+     * @param bucket the S3 bucket name (for reference)
+     * @param key the S3 object key (used for headers)
+     * @param contentType the MIME content type of the object, may be null
+     * @param sizeBytes the size of the object in bytes
+     * @param bodyInputStream the input stream containing the object content
+     * @return a {@link Uni} that completes with the upload response containing
+     *         HTTP status code, content type, and response body
+     * @throws IllegalArgumentException if any required parameter is null or invalid
      */
     public Uni<IntakeUploadResponse> uploadRaw(
         String datasourceId,
@@ -113,20 +156,60 @@ public class ConnectorIntakeClient {
     }
 
     /**
-         * HttpClient BodyPublisher that streams an InputStream with a known length.
-         */
-        private record InputStreamBodyPublisher(InputStream inputStream, long contentLength,
-                                                Executor executor) implements HttpRequest.BodyPublisher {
+     * {@link HttpRequest.BodyPublisher} implementation that streams an {@link InputStream} with a known content length.
+     * <p>
+     * This publisher enables efficient streaming of S3 object content to HTTP requests
+     * without loading the entire object into memory. It implements the reactive streams
+     * {@link Flow.Publisher} interface for integration with the HTTP client's asynchronous API.
+     * </p>
+     *
+     * <h3>Thread Safety</h3>
+     * <p>
+     * Instances of this class are immutable and thread-safe. The underlying
+     * {@link InputStream} is accessed sequentially during the streaming process.
+     * </p>
+     *
+     * @param inputStream the input stream containing the data to publish
+     * @param contentLength the total content length in bytes
+     * @param executor the executor for asynchronous processing
+     * @since 1.0.0
+     */
+    private record InputStreamBodyPublisher(InputStream inputStream, long contentLength,
+                                            Executor executor) implements HttpRequest.BodyPublisher {
+            /**
+             * Creates a new InputStreamBodyPublisher with the default executor.
+             *
+             * @param inputStream the input stream containing the data to publish
+             * @param contentLength the total content length in bytes
+             */
             InputStreamBodyPublisher(InputStream inputStream, long contentLength) {
                 this(inputStream, contentLength, Infrastructure.getDefaultExecutor());
             }
 
+            /**
+             * Creates a new InputStreamBodyPublisher with a custom executor.
+             *
+             * @param inputStream the input stream containing the data to publish
+             * @param contentLength the total content length in bytes
+             * @param executor the executor for asynchronous processing
+             */
             private InputStreamBodyPublisher(InputStream inputStream, long contentLength, Executor executor) {
                 this.inputStream = Objects.requireNonNull(inputStream, "inputStream");
                 this.contentLength = contentLength;
                 this.executor = Objects.requireNonNull(executor, "executor");
             }
 
+            /**
+             * Subscribes a subscriber to this publisher.
+             * <p>
+             * Creates a new subscription and begins the streaming process.
+             * The subscriber will receive {@link ByteBuffer} chunks of data
+             * until the stream is exhausted or an error occurs.
+             * </p>
+             *
+             * @param subscriber the subscriber to receive the data chunks
+             * @throws NullPointerException if subscriber is null
+             */
             @Override
             public void subscribe(Flow.Subscriber<? super ByteBuffer> subscriber) {
                 Objects.requireNonNull(subscriber, "subscriber");
@@ -134,15 +217,34 @@ public class ConnectorIntakeClient {
                 subscriber.onSubscribe(subscription);
             }
 
+            /**
+             * Flow.Subscription implementation for streaming InputStream data.
+             * <p>
+             * Manages the backpressure-aware streaming of data from an InputStream
+             * to a Flow.Subscriber. Implements demand-driven flow control and
+             * proper resource cleanup.
+             * </p>
+             */
             private static final class InputStreamSubscription implements Flow.Subscription {
                 private final Flow.Subscriber<? super ByteBuffer> subscriber;
                 private final InputStream inputStream;
                 private final Executor executor;
+                /** Demand counter for backpressure control. */
                 private final AtomicLong demand = new AtomicLong(0);
+                /** Flag indicating if streaming has started. */
                 private final AtomicBoolean started = new AtomicBoolean(false);
+                /** Lock for coordinating demand and cancellation. */
                 private final Object lock = new Object();
+                /** Flag indicating if the subscription has been cancelled. */
                 private volatile boolean cancelled = false;
 
+                /**
+                 * Creates a new InputStreamSubscription.
+                 *
+                 * @param subscriber the subscriber to receive data
+                 * @param inputStream the input stream to read from
+                 * @param executor the executor for asynchronous processing
+                 */
                 InputStreamSubscription(Flow.Subscriber<? super ByteBuffer> subscriber,
                                         InputStream inputStream,
                                         Executor executor) {
@@ -151,6 +253,17 @@ public class ConnectorIntakeClient {
                     this.executor = executor;
                 }
 
+                /**
+                 * Requests additional data from the publisher.
+                 * <p>
+                 * Implements backpressure by allowing the subscriber to request
+                 * a specific number of data chunks. If this is the first request,
+                 * streaming begins asynchronously.
+                 * </p>
+                 *
+                 * @param n the number of data chunks requested (must be > 0)
+                 * @throws IllegalArgumentException if n <= 0
+                 */
                 @Override
                 public void request(long n) {
                     if (n <= 0) {
@@ -171,6 +284,13 @@ public class ConnectorIntakeClient {
                     }
                 }
 
+                /**
+                 * Cancels the subscription and releases resources.
+                 * <p>
+                 * Signals that the subscriber no longer wants to receive data.
+                 * Closes the input stream and notifies any waiting threads.
+                 * </p>
+                 */
                 @Override
                 public void cancel() {
                     cancelled = true;
@@ -180,6 +300,14 @@ public class ConnectorIntakeClient {
                     }
                 }
 
+                /**
+                 * Pumps data from the InputStream to the subscriber.
+                 * <p>
+                 * Reads data in chunks from the input stream and publishes them
+                 * to the subscriber, respecting backpressure demands. Continues
+                 * until the stream is exhausted, cancelled, or an error occurs.
+                 * </p>
+                 */
                 private void pump() {
                     byte[] buffer = new byte[DEFAULT_BUFFER_SIZE];
                     try {
@@ -213,17 +341,46 @@ public class ConnectorIntakeClient {
                     }
                 }
 
+                /**
+                 * Adds two long values with overflow protection.
+                 * <p>
+                 * Adds the given values and caps the result at Long.MAX_VALUE
+                 * to prevent overflow issues in demand calculations.
+                 * </p>
+                 *
+                 * @param current the current demand value
+                 * @param n the amount to add
+                 * @return the sum, capped at Long.MAX_VALUE
+                 */
                 private static long addWithCap(long current, long n) {
                     long sum = current + n;
                     return sum < 0 ? Long.MAX_VALUE : sum;
                 }
 
+                /**
+                 * Creates a copy of a byte array with exact length.
+                 * <p>
+                 * Used to create properly sized byte arrays from the read buffer
+                 * when the actual read length is less than the buffer size.
+                 * </p>
+                 *
+                 * @param buffer the source buffer
+                 * @param length the number of bytes to copy
+                 * @return a new byte array containing the copied data
+                 */
                 private static byte[] copyOf(byte[] buffer, int length) {
                     byte[] copy = new byte[length];
                     System.arraycopy(buffer, 0, copy, 0, length);
                     return copy;
                 }
 
+                /**
+                 * Closes the input stream quietly.
+                 * <p>
+                 * Attempts to close the input stream, ignoring any IOException
+                 * that may occur during the close operation.
+                 * </p>
+                 */
                 private void closeQuietly() {
                     try {
                         inputStream.close();
@@ -234,5 +391,16 @@ public class ConnectorIntakeClient {
             }
         }
 
+    /**
+     * Response from an intake service upload operation.
+     * <p>
+     * Contains the HTTP response details from uploading an object to the
+     * connector-intake-service, including status code and response content.
+     *
+     * @param statusCode the HTTP status code of the response
+     * @param contentType the content type of the response body
+     * @param body the response body content as a string
+     * @since 1.0.0
+     */
     public record IntakeUploadResponse(int statusCode, String contentType, String body) {}
 }

@@ -11,6 +11,22 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+/**
+ * Test suite for S3 connector control service functionality.
+ * <p>
+ * This test class verifies the behavior of the {@link ai.pipestream.connector.s3.grpc.S3ConnectorControlServiceImpl}
+ * and related services, focusing on gRPC API endpoints and S3 connectivity testing.
+ * </p>
+ *
+ * <h2>Test Coverage</h2>
+ * <ul>
+ *   <li>S3 bucket connectivity testing with anonymous credentials</li>
+ *   <li>Error handling for invalid configurations</li>
+ *   <li>Integration with {@link S3TestCrawlService}</li>
+ * </ul>
+ *
+ * @since 1.0.0
+ */
 @QuarkusTest
 class S3ConnectorControlServiceTest {
 

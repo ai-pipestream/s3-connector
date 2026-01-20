@@ -2,9 +2,12 @@ package ai.pipestream.connector.s3.grpc;
 
 import ai.pipestream.connector.s3.service.S3CrawlService;
 import ai.pipestream.connector.s3.service.DatasourceConfigService;
+import ai.pipestream.connector.s3.service.S3TestCrawlService;
 import ai.pipestream.connector.s3.v1.MutinyS3ConnectorControlServiceGrpc;
 import ai.pipestream.connector.s3.v1.StartCrawlRequest;
 import ai.pipestream.connector.s3.v1.StartCrawlResponse;
+import ai.pipestream.connector.s3.v1.TestBucketCrawlRequest;
+import ai.pipestream.connector.s3.v1.TestBucketCrawlResponse;
 import com.google.protobuf.Timestamp;
 import io.grpc.Status;
 import io.quarkus.grpc.GrpcService;
@@ -28,6 +31,9 @@ public class S3ConnectorControlServiceImpl extends MutinyS3ConnectorControlServi
 
     @Inject
     DatasourceConfigService datasourceConfigService;
+
+    @Inject
+    S3TestCrawlService testCrawlService;
 
     @Override
     public Uni<StartCrawlResponse> startCrawl(StartCrawlRequest request) {
@@ -77,6 +83,38 @@ public class S3ConnectorControlServiceImpl extends MutinyS3ConnectorControlServi
             .setSeconds(now.getEpochSecond())
             .setNanos(now.getNano())
             .build();
+    }
+
+    @Override
+    public Uni<TestBucketCrawlResponse> testBucketCrawl(TestBucketCrawlRequest request) {
+        LOG.infof("Received TestBucketCrawl request: bucket=%s, prefix=%s, dryRun=%s, maxSample=%d",
+            request.getBucket(), request.getPrefix(), request.getDryRun(), request.getMaxSample());
+
+        // Validate request
+        if (request.getBucket() == null || request.getBucket().isBlank()) {
+            return Uni.createFrom().failure(Status.INVALID_ARGUMENT
+                .withDescription("bucket is required")
+                .asRuntimeException());
+        }
+
+        if (request.getConnectionConfig() == null) {
+            return Uni.createFrom().failure(Status.INVALID_ARGUMENT
+                .withDescription("connection_config is required")
+                .asRuntimeException());
+        }
+
+        String bucket = request.getBucket();
+        String prefix = firstNonBlank(request.getPrefix());
+        boolean dryRun = request.getDryRun();
+        int maxSample = request.getMaxSample() > 0 ? request.getMaxSample() : 100; // Default to 100 samples
+
+        return testCrawlService.testBucketCrawl(
+            request.getConnectionConfig(),
+            bucket,
+            prefix,
+            dryRun,
+            maxSample
+        );
     }
 
     private static String firstNonBlank(String... values) {

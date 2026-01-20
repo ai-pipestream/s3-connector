@@ -26,7 +26,10 @@ public class S3CrawlService {
     private static final Logger LOG = Logger.getLogger(S3CrawlService.class);
 
     @Inject
-    S3AsyncClient s3AsyncClient;
+    S3ClientFactory clientFactory;
+
+    @Inject
+    DatasourceConfigService datasourceConfigService;
 
     @Inject
     S3CrawlEventPublisher eventPublisher;
@@ -57,26 +60,32 @@ public class S3CrawlService {
                                           String prefix,
                                           String continuationToken,
                                           AtomicInteger totalObjects) {
-        String configuredPrefix = config.initialCrawl().prefix().orElse(null);
-        String actualPrefix = (prefix != null && !prefix.isBlank()) ? prefix : configuredPrefix;
-        int maxKeys = config.initialCrawl().maxKeysPerRequest();
+        return datasourceConfigService.getDatasourceConfig(datasourceId)
+            .flatMap(datasourceConfig -> {
+                // Get datasource-specific S3 client
+                S3AsyncClient client = clientFactory.getOrCreateClient(datasourceId, datasourceConfig.s3Config());
 
-        ListObjectsV2Request.Builder requestBuilder = ListObjectsV2Request.builder()
-            .bucket(bucket)
-            .maxKeys(maxKeys);
+                String configuredPrefix = config.initialCrawl().prefix().orElse(null);
+                String actualPrefix = (prefix != null && !prefix.isBlank()) ? prefix : configuredPrefix;
+                int maxKeys = config.initialCrawl().maxKeysPerRequest();
 
-        if (actualPrefix != null && !actualPrefix.isBlank()) {
-            requestBuilder.prefix(actualPrefix);
-        }
+                ListObjectsV2Request.Builder requestBuilder = ListObjectsV2Request.builder()
+                    .bucket(bucket)
+                    .maxKeys(maxKeys);
 
-        if (continuationToken != null) {
-            requestBuilder.continuationToken(continuationToken);
-        }
+                if (actualPrefix != null && !actualPrefix.isBlank()) {
+                    requestBuilder.prefix(actualPrefix);
+                }
 
-        ListObjectsV2Request request = requestBuilder.build();
+                if (continuationToken != null) {
+                    requestBuilder.continuationToken(continuationToken);
+                }
 
-        return Uni.createFrom().completionStage(s3AsyncClient.listObjectsV2(request))
-            .flatMap(response -> handleListResponse(datasourceId, bucket, actualPrefix, response, totalObjects));
+                ListObjectsV2Request request = requestBuilder.build();
+
+                return Uni.createFrom().completionStage(client.listObjectsV2(request))
+                    .flatMap(response -> handleListResponse(datasourceId, bucket, actualPrefix, response, totalObjects));
+            });
     }
 
     private Uni<Void> handleListResponse(String datasourceId,
@@ -152,24 +161,30 @@ public class S3CrawlService {
     public Uni<Void> crawlObject(String datasourceId, String bucket, String key) {
         LOG.infof("Crawling single S3 object: datasourceId=%s, bucket=%s, key=%s", datasourceId, bucket, key);
 
-        return Uni.createFrom().completionStage(
-                s3AsyncClient.headObject(builder -> builder
-                    .bucket(bucket)
-                    .key(key)))
-            .flatMap(headObjectResponse -> {
-                S3CrawlEvent event = eventPublisher.buildEvent(
-                    datasourceId,
-                    bucket,
-                    key,
-                    headObjectResponse.versionId(),
-                    headObjectResponse.contentLength(),
-                    headObjectResponse.eTag(),
-                    headObjectResponse.lastModified()
-                );
-                return eventPublisher.publish(event);
-            })
-            .onFailure().invoke(error -> {
-                LOG.errorf(error, "Error crawling S3 object: bucket=%s, key=%s", bucket, key);
+        return datasourceConfigService.getDatasourceConfig(datasourceId)
+            .flatMap(datasourceConfig -> {
+                // Get datasource-specific S3 client
+                S3AsyncClient client = clientFactory.getOrCreateClient(datasourceId, datasourceConfig.s3Config());
+
+                return Uni.createFrom().completionStage(
+                        client.headObject(builder -> builder
+                            .bucket(bucket)
+                            .key(key)))
+                    .flatMap(headObjectResponse -> {
+                        S3CrawlEvent event = eventPublisher.buildEvent(
+                            datasourceId,
+                            bucket,
+                            key,
+                            headObjectResponse.versionId(),
+                            headObjectResponse.contentLength(),
+                            headObjectResponse.eTag(),
+                            headObjectResponse.lastModified()
+                        );
+                        return eventPublisher.publish(event);
+                    })
+                    .onFailure().invoke(error -> {
+                        LOG.errorf(error, "Error crawling S3 object: bucket=%s, key=%s", bucket, key);
+                    });
             });
     }
 }

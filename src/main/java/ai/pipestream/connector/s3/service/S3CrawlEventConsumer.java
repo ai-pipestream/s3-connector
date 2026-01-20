@@ -25,7 +25,7 @@ public class S3CrawlEventConsumer {
     private static final Logger LOG = Logger.getLogger(S3CrawlEventConsumer.class);
 
     @Inject
-    S3AsyncClient s3AsyncClient;
+    S3ClientFactory clientFactory;
 
     @Inject
     ConnectorIntakeClient intakeClient;
@@ -47,7 +47,10 @@ public class S3CrawlEventConsumer {
 
         return datasourceConfigService.getDatasourceConfig(event.getDatasourceId())
             .flatMap(config -> {
-                return Uni.createFrom().completionStage(downloadObject(event))
+                // Get datasource-specific S3 client
+                S3AsyncClient client = clientFactory.getOrCreateClient(config.datasourceId(), config.s3Config());
+
+                return Uni.createFrom().completionStage(downloadObject(client, event))
                     .flatMap(s3Response -> intakeClient.uploadRaw(
                         event.getDatasourceId(),
                         config.apiKey(),
@@ -66,7 +69,7 @@ public class S3CrawlEventConsumer {
             });
     }
 
-    private java.util.concurrent.CompletionStage<ResponseInputStream<GetObjectResponse>> downloadObject(S3CrawlEvent event) {
+    private java.util.concurrent.CompletionStage<ResponseInputStream<GetObjectResponse>> downloadObject(S3AsyncClient client, S3CrawlEvent event) {
         GetObjectRequest.Builder requestBuilder = GetObjectRequest.builder()
             .bucket(event.getBucket())
             .key(event.getKey());
@@ -76,6 +79,6 @@ public class S3CrawlEventConsumer {
         }
 
         GetObjectRequest request = requestBuilder.build();
-        return s3AsyncClient.getObject(request, AsyncResponseTransformer.toBlockingInputStream());
+        return client.getObject(request, AsyncResponseTransformer.toBlockingInputStream());
     }
 }

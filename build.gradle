@@ -100,6 +100,9 @@ test {
     systemProperty "pipestream.wiremock.image", "docker.io/pipestreamai/pipestream-wiremock-server:0.1.30"
     environment "TESTCONTAINERS_RYUK_DISABLED", "false"
 
+    // Increase memory for tests (especially integration tests that crawl large buckets)
+    maxHeapSize = "4g"
+
     // Add JVM option for JDK 24+
     def javaVersion = JavaVersion.current().majorVersion.toInteger()
     if (javaVersion >= 24) {

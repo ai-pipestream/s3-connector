@@ -2,6 +2,7 @@ package ai.pipestream.connector.s3;
 
 import ai.pipestream.connector.s3.service.S3CrawlService;
 import ai.pipestream.connector.s3.service.DatasourceConfigService;
+import ai.pipestream.connector.s3.v1.S3ConnectionConfig;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.vertx.RunOnVertxContext;
@@ -46,8 +47,18 @@ class S3CrawlServiceBasicTest {
         String testKey = "test-file.txt";
         String testContent = "Hello, S3!";
 
-        // Register datasource config
-        datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey);
+        // Create MinIO S3 connection config
+        S3ConnectionConfig s3Config = S3ConnectionConfig.newBuilder()
+            .setCredentialsType("static")
+            .setAccessKeyId("minioadmin")  // From MinioTestResource
+            .setSecretAccessKey("minioadmin")  // From MinioTestResource
+            .setRegion("us-east-1")
+            .setEndpointOverride(s3Endpoint)  // From QuarkusTestResource properties
+            .setPathStyleAccess(true)  // MinIO requires path-style access
+            .build();
+
+        // Register datasource config with MinIO connection details
+        datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, s3Config);
 
         // Upload a test file to MinIO
         asserter.execute(() -> {

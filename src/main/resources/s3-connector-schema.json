@@ -1,0 +1,149 @@
+// DEFERRED: This JSON schema is ready for implementation but schema registration
+// is deferred to avoid protobuf dependency concerns. See GitHub issues for details.
+//
+// This schema defines the configuration structure for S3 connectors and can be
+// used for frontend form generation once schema registration is implemented.
+
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pipestream.ai/schemas/s3-connector-config/v1.0.0",
+  "title": "S3 Connector Configuration",
+  "description": "Configuration schema for S3 connector datasources",
+  "type": "object",
+  "properties": {
+    "bucket": {
+      "type": "string",
+      "title": "S3 Bucket Name",
+      "description": "The name of the S3 bucket to crawl",
+      "minLength": 3,
+      "maxLength": 63,
+      "pattern": "^[a-z0-9][a-z0-9\\-]*[a-z0-9]$",
+      "examples": ["my-documents", "company-data-2024"]
+    },
+    "prefix": {
+      "type": "string",
+      "title": "Object Prefix Filter",
+      "description": "Optional prefix to limit crawling to objects with this prefix",
+      "examples": ["documents/", "archive/2024/"]
+    },
+    "credentials": {
+      "type": "object",
+      "title": "S3 Credentials",
+      "description": "Authentication configuration for S3 access",
+      "oneOf": [
+        {
+          "title": "Static Credentials",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "static",
+              "title": "Credential Type"
+            },
+            "accessKeyId": {
+              "type": "string",
+              "title": "AWS Access Key ID",
+              "description": "Your AWS access key ID",
+              "minLength": 16,
+              "maxLength": 128,
+              "examples": ["AKIAIOSFODNN7EXAMPLE"]
+            },
+            "secretAccessKey": {
+              "type": "string",
+              "title": "AWS Secret Access Key",
+              "description": "Your AWS secret access key",
+              "minLength": 40,
+              "maxLength": 128,
+              "examples": ["wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"]
+            }
+          },
+          "required": ["type", "accessKeyId", "secretAccessKey"]
+        },
+        {
+          "title": "KMS Credentials",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "static",
+              "title": "Credential Type"
+            },
+            "kmsAccessKeyRef": {
+              "type": "string",
+              "title": "KMS Access Key Reference",
+              "description": "Reference to access key stored in KMS",
+              "examples": ["kms://project/env/access-key", "arn:aws:kms:region:account:key/key-id"]
+            },
+            "kmsSecretKeyRef": {
+              "type": "string",
+              "title": "KMS Secret Key Reference",
+              "description": "Reference to secret key stored in KMS",
+              "examples": ["kms://project/env/secret-key", "arn:aws:kms:region:account:key/secret-key-id"]
+            }
+          },
+          "required": ["type", "kmsAccessKeyRef", "kmsSecretKeyRef"]
+        },
+        {
+          "title": "Anonymous Access",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "anonymous",
+              "title": "Credential Type"
+            }
+          },
+          "required": ["type"]
+        }
+      ]
+    },
+    "region": {
+      "type": "string",
+      "title": "AWS Region",
+      "description": "AWS region where the S3 bucket is located",
+      "default": "us-east-1",
+      "enum": [
+        "us-east-1",
+        "us-east-2",
+        "us-west-1",
+        "us-west-2",
+        "eu-west-1",
+        "eu-central-1",
+        "ap-southeast-1",
+        "ap-southeast-2",
+        "ap-northeast-1"
+      ],
+      "examples": ["us-east-1", "eu-west-1"]
+    },
+    "endpoint": {
+      "type": "string",
+      "title": "Custom S3 Endpoint",
+      "description": "Custom endpoint URL for S3-compatible services (e.g., MinIO)",
+      "format": "uri",
+      "examples": ["https://minio.example.com", "http://localhost:9000"]
+    },
+    "pathStyle": {
+      "type": "boolean",
+      "title": "Path-Style Access",
+      "description": "Use path-style access instead of virtual-hosted style",
+      "default": false,
+      "examples": [true, false]
+    },
+    "crawlMode": {
+      "type": "string",
+      "title": "Crawl Mode",
+      "description": "How the connector should operate",
+      "enum": ["initial-crawl", "event-driven", "both"],
+      "default": "initial-crawl",
+      "examples": ["initial-crawl", "event-driven"]
+    },
+    "maxKeysPerRequest": {
+      "type": "integer",
+      "title": "Max Keys Per Request",
+      "description": "Maximum number of S3 objects to list per API request",
+      "minimum": 1,
+      "maximum": 1000,
+      "default": 1000,
+      "examples": [100, 500, 1000]
+    }
+  },
+  "required": ["bucket", "credentials", "region"],
+  "additionalProperties": false
+}

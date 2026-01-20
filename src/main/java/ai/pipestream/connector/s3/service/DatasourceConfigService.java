@@ -1,6 +1,9 @@
 package ai.pipestream.connector.s3.service;
 
+import ai.pipestream.connector.s3.entity.DatasourceConfigEntity;
 import ai.pipestream.connector.s3.v1.S3ConnectionConfig;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -9,19 +12,25 @@ import org.jboss.logging.Logger;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Service for managing datasource configurations in unmanaged S3 connector deployments.
+ * Service for managing datasource configurations in S3 connector deployments.
  * <p>
  * This service handles the registration and retrieval of datasource configurations
- * for S3 connectors that operate independently of the connector-admin service.
- * It maintains an in-memory registry of datasource settings including API keys
- * and S3 connection parameters.
+ * for S3 connectors. It persists configurations to the database for durability
+ * across service restarts and enables sharing configurations between multiple
+ * connector instances.
  * </p>
  *
  * <h2>Configuration Management</h2>
  * <p>
- * Configurations are stored in memory and must be registered before use.
+ * Configurations are stored in the database and cached in memory for performance.
  * Changes to configuration automatically invalidate cached S3 clients to
  * ensure connection parameters are refreshed.
+ * </p>
+ *
+ * <h2>Thread Safety</h2>
+ * <p>
+ * This service is thread-safe and can be used concurrently from multiple threads.
+ * Database operations are handled reactively to avoid blocking.
  * </p>
  *
  * @since 1.0.0
@@ -40,24 +49,29 @@ public class DatasourceConfigService {
     @Inject
     S3ClientFactory clientFactory;
 
-    private final ConcurrentHashMap<String, DatasourceConfig> configs = new ConcurrentHashMap<>();
+    @Inject
+    ObjectMapper objectMapper;
+
+    // In-memory cache for performance
+    private final ConcurrentHashMap<String, DatasourceConfig> configCache = new ConcurrentHashMap<>();
 
     /**
      * Registers or updates a datasource configuration.
      * <p>
-     * This method stores the datasource configuration in the in-memory registry.
-     * If the configuration for the datasource already exists and has changed,
-     * any cached S3 client for that datasource is automatically invalidated
-     * to ensure connection parameters are refreshed.
+     * This method persists the datasource configuration to the database and updates
+     * the in-memory cache. If the configuration for the datasource already exists
+     * and has changed, any cached S3 client for that datasource is automatically
+     * invalidated to ensure connection parameters are refreshed.
      * </p>
      *
      * @param datasourceId the unique identifier for the datasource
      * @param apiKey the API key for accessing the connector-intake-service
      * @param s3Config the S3 connection configuration (required, cannot be null)
+     * @return a Uni that completes when the configuration has been saved
      * @throws IllegalArgumentException if any parameter is null, blank, or invalid
      * @since 1.0.0
      */
-    public void registerDatasourceConfig(String datasourceId, String apiKey, S3ConnectionConfig s3Config) {
+    public Uni<Void> registerDatasourceConfig(String datasourceId, String apiKey, S3ConnectionConfig s3Config) {
         if (datasourceId == null || datasourceId.isBlank()) {
             throw new IllegalArgumentException("Datasource ID is required");
         }
@@ -68,25 +82,54 @@ public class DatasourceConfigService {
             throw new IllegalArgumentException("S3ConnectionConfig is required for datasource: " + datasourceId);
         }
 
-        // Check if config already exists and has changed
-        DatasourceConfig existing = configs.get(datasourceId);
-        DatasourceConfig newConfig = new DatasourceConfig(datasourceId, apiKey, s3Config);
+        return Uni.createFrom().item(() -> {
+            try {
+                String s3ConfigJson = objectMapper.writeValueAsString(s3Config);
+                return new Object[]{s3ConfigJson, new DatasourceConfig(datasourceId, apiKey, s3Config)};
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException("Failed to serialize S3 config", e);
+            }
+        }).flatMap(tuple -> {
+            String s3ConfigJson = (String) tuple[0];
+            DatasourceConfig newConfig = (DatasourceConfig) tuple[1];
 
-        if (existing != null && !existing.equals(newConfig)) {
-            // Config changed, invalidate cached client
-            LOG.infof("Datasource config changed for %s, invalidating cached S3 client", datasourceId);
-            clientFactory.closeClient(datasourceId);
-        }
+            // Check if config already exists and has changed
+            DatasourceConfig existing = configCache.get(datasourceId);
+            if (existing != null && !existing.equals(newConfig)) {
+                // Config changed, invalidate cached client
+                LOG.infof("Datasource config changed for %s, invalidating cached S3 client", datasourceId);
+                clientFactory.closeClient(datasourceId);
+            }
 
-        configs.put(datasourceId, newConfig);
-        LOG.debugf("Registered datasource config: datasourceId=%s", datasourceId);
+            // Save to database
+            return DatasourceConfigEntity.<DatasourceConfigEntity>findById(datasourceId)
+                .flatMap(existingEntity -> {
+                    if (existingEntity != null) {
+                        // Update existing
+                        existingEntity.updateS3Config(s3ConfigJson);
+                        existingEntity.updateApiKey(apiKey);
+                        return existingEntity.<DatasourceConfigEntity>persist();
+                    } else {
+                        // Create new
+                        DatasourceConfigEntity newEntity = new DatasourceConfigEntity(datasourceId, apiKey, s3ConfigJson);
+                        return newEntity.<DatasourceConfigEntity>persist();
+                    }
+                })
+                .invoke(() -> {
+                    // Update cache
+                    configCache.put(datasourceId, newConfig);
+                    LOG.debugf("Registered datasource config: datasourceId=%s", datasourceId);
+                })
+                .replaceWithVoid();
+        });
     }
 
     /**
      * Retrieves the configuration for a registered datasource.
      * <p>
      * Returns the complete datasource configuration including the API key
-     * and S3 connection parameters. The datasource must have been previously
+     * and S3 connection parameters. First checks the in-memory cache, then
+     * loads from database if not found. The datasource must have been previously
      * registered using {@link #registerDatasourceConfig(String, String, S3ConnectionConfig)}.
      * </p>
      *
@@ -102,12 +145,34 @@ public class DatasourceConfigService {
         if (datasourceId == null || datasourceId.isBlank()) {
             return Uni.createFrom().failure(new IllegalArgumentException("Datasource ID is required"));
         }
-        DatasourceConfig config = configs.get(datasourceId);
-        if (config == null) {
-            return Uni.createFrom().failure(new IllegalStateException(
-                "Datasource config not registered for datasourceId=" + datasourceId));
+
+        // Check cache first
+        DatasourceConfig cached = configCache.get(datasourceId);
+        if (cached != null) {
+            return Uni.createFrom().item(cached);
         }
-        return Uni.createFrom().item(config);
+
+        // Load from database
+        return DatasourceConfigEntity.<DatasourceConfigEntity>findById(datasourceId)
+            .flatMap(entity -> {
+                if (entity == null) {
+                    return Uni.createFrom().failure(new IllegalStateException(
+                        "Datasource config not registered for datasourceId=" + datasourceId));
+                }
+
+                try {
+                    S3ConnectionConfig s3Config = objectMapper.readValue(entity.s3ConfigJson, S3ConnectionConfig.class);
+                    DatasourceConfig config = new DatasourceConfig(datasourceId, entity.apiKey, s3Config);
+
+                    // Cache for future use
+                    configCache.put(datasourceId, config);
+
+                    return Uni.createFrom().item(config);
+                } catch (JsonProcessingException e) {
+                    return Uni.createFrom().failure(new RuntimeException(
+                        "Failed to deserialize S3 config for datasourceId=" + datasourceId, e));
+                }
+            });
     }
 
     /**

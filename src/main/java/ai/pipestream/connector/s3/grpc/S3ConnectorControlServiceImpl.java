@@ -128,12 +128,13 @@ public class S3ConnectorControlServiceImpl extends MutinyS3ConnectorControlServi
         String prefix = firstNonBlank(request.getPrefix());
         String requestId = firstNonBlank(request.getRequestId(), UUID.randomUUID().toString());
 
-        datasourceConfigService.registerDatasourceConfig(datasourceId, headerApiKey, connectionConfig);
+        return datasourceConfigService.registerDatasourceConfig(datasourceId, headerApiKey, connectionConfig)
+            .flatMap(v -> {
+                LOG.infof("Received StartCrawl request: datasourceId=%s, bucket=%s, prefix=%s, requestId=%s",
+                    datasourceId, bucket, prefix, requestId);
 
-        LOG.infof("Received StartCrawl request: datasourceId=%s, bucket=%s, prefix=%s, requestId=%s",
-            datasourceId, bucket, prefix, requestId);
-
-        return crawlService.crawlBucket(datasourceId, bucket, prefix)
+                return crawlService.crawlBucket(datasourceId, bucket, prefix);
+            })
             .replaceWith(StartCrawlResponse.newBuilder()
                 .setAccepted(true)
                 .setMessage("Crawl accepted")

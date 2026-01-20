@@ -24,14 +24,15 @@ public class DatasourceConfigService {
     private final ConcurrentHashMap<String, DatasourceConfig> configs = new ConcurrentHashMap<>();
 
     /**
-     * Register datasource config from a trigger request.
+     * Register datasource config with S3 connection details.
      * <p>
-     * S3 connection details can be provided for datasource-specific S3 access.
-     * If not provided, defaults to anonymous credentials (for public buckets).
+     * S3 connection configuration is required for all datasources.
+     * This ensures all S3 connections are explicitly configured.
      *
      * @param datasourceId datasource identifier
      * @param apiKey intake API key
-     * @param s3Config optional S3 connection configuration
+     * @param s3Config S3 connection configuration (required)
+     * @throws IllegalArgumentException if s3Config is null
      */
     public void registerDatasourceConfig(String datasourceId, String apiKey, S3ConnectionConfig s3Config) {
         if (datasourceId == null || datasourceId.isBlank()) {
@@ -40,13 +41,8 @@ public class DatasourceConfigService {
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalArgumentException("API key is required");
         }
-
-        // Default to anonymous config if null
         if (s3Config == null) {
-            s3Config = S3ConnectionConfig.newBuilder()
-                .setCredentialsType("anonymous")
-                .setRegion("us-east-1")
-                .build();
+            throw new IllegalArgumentException("S3ConnectionConfig is required for datasource: " + datasourceId);
         }
 
         // Check if config already exists and has changed
@@ -61,17 +57,6 @@ public class DatasourceConfigService {
 
         configs.put(datasourceId, newConfig);
         LOG.debugf("Registered datasource config: datasourceId=%s", datasourceId);
-    }
-
-    /**
-     * Register datasource config with minimal parameters (for backward compatibility).
-     * Uses defaults: anonymous credentials, us-east-1 region.
-     *
-     * @param datasourceId datasource identifier
-     * @param apiKey intake API key
-     */
-    public void registerDatasourceConfig(String datasourceId, String apiKey) {
-        registerDatasourceConfig(datasourceId, apiKey, null);
     }
 
     /**
@@ -97,14 +82,14 @@ public class DatasourceConfigService {
     /**
      * Datasource configuration record.
      * <p>
-     * Includes both intake API key and S3 connection details for multi-connection support.
+     * Includes both intake API key and S3 connection details.
+     * S3ConnectionConfig is required for all datasources.
      */
     public record DatasourceConfig(String datasourceId, String apiKey, S3ConnectionConfig s3Config) {
-        /**
-         * Constructor for backward compatibility with minimal config.
-         */
-        public DatasourceConfig(String datasourceId, String apiKey) {
-            this(datasourceId, apiKey, null);
+        public DatasourceConfig {
+            if (s3Config == null) {
+                throw new IllegalArgumentException("S3ConnectionConfig is required");
+            }
         }
     }
 }

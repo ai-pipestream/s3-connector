@@ -2,6 +2,7 @@ package ai.pipestream.connector.s3;
 
 import ai.pipestream.connector.s3.service.S3CrawlService;
 import ai.pipestream.connector.s3.service.DatasourceConfigService;
+import ai.pipestream.connector.s3.v1.S3ConnectionConfig;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.vertx.RunOnVertxContext;
 import io.quarkus.test.vertx.UniAsserter;
@@ -46,8 +47,12 @@ class S3CrawlServiceIntegrationTest {
         // This is equivalent to: aws s3 ls "s3://noaa-gsod-pds/2024/" --recursive --no-sign-request
         String prefix = "2024/";
 
-        // Register datasource config
-        datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey);
+        // Register datasource config with anonymous S3 config for public bucket
+        S3ConnectionConfig s3Config = S3ConnectionConfig.newBuilder()
+            .setCredentialsType("anonymous")
+            .setRegion("us-east-1")
+            .build();
+        datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, s3Config);
 
         // Test that crawl service can list and process objects from the public bucket
         asserter.assertThat(() -> crawlService.crawlBucket(datasourceId, bucket, prefix),
@@ -73,8 +78,12 @@ class S3CrawlServiceIntegrationTest {
         // but verifies the basic listing works
         String prefix = null;
 
-        // Register datasource config
-        datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey);
+        // Register datasource config with anonymous S3 config for public bucket
+        S3ConnectionConfig s3Config = S3ConnectionConfig.newBuilder()
+            .setCredentialsType("anonymous")
+            .setRegion("us-east-1")
+            .build();
+        datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, s3Config);
 
         // Test that crawl service can list objects at the root level
         asserter.assertThat(() -> crawlService.crawlBucket(datasourceId, bucket, prefix),

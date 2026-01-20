@@ -34,12 +34,17 @@ public class S3ClientFactory {
      * Get or create an S3AsyncClient for the given datasource.
      * <p>
      * Clients are cached and reused for the same datasource configuration.
+     * S3ConnectionConfig is required - no default configuration is provided.
      *
      * @param datasourceId datasource identifier
-     * @param config S3 connection configuration
+     * @param config S3 connection configuration (required)
      * @return S3AsyncClient configured for this datasource
+     * @throws IllegalArgumentException if config is null
      */
     public S3AsyncClient getOrCreateClient(String datasourceId, S3ConnectionConfig config) {
+        if (config == null) {
+            throw new IllegalArgumentException("S3ConnectionConfig is required for datasource: " + datasourceId);
+        }
         return datasourceClientCache.computeIfAbsent(datasourceId,
             id -> createClient(config, "datasource-" + id));
     }
@@ -48,20 +53,25 @@ public class S3ClientFactory {
      * Create a temporary S3AsyncClient for testing purposes.
      * <p>
      * Test clients are not cached and should be closed after use.
+     * S3ConnectionConfig is required - no default configuration is provided.
      *
-     * @param config S3 connection configuration
+     * @param config S3 connection configuration (required)
      * @return temporary S3AsyncClient for testing
+     * @throws IllegalArgumentException if config is null
      */
     public S3AsyncClient createTestClient(S3ConnectionConfig config) {
+        if (config == null) {
+            throw new IllegalArgumentException("S3ConnectionConfig is required for test client");
+        }
         return createClient(config, "test-client");
     }
 
     /**
      * Create a new S3AsyncClient based on connection configuration.
      * <p>
-     * If config is null, defaults to anonymous credentials with us-east-1 region.
+     * S3ConnectionConfig is guaranteed to be non-null when this method is called.
      *
-     * @param config S3 connection configuration (null defaults to anonymous)
+     * @param config S3 connection configuration (guaranteed non-null)
      * @param clientName name for logging purposes
      * @return configured S3AsyncClient
      */
@@ -69,14 +79,6 @@ public class S3ClientFactory {
         LOG.infof("Creating S3AsyncClient for %s", clientName);
 
         var builder = S3AsyncClient.builder();
-
-        // Default to anonymous config if null
-        if (config == null) {
-            config = S3ConnectionConfig.newBuilder()
-                .setCredentialsType("anonymous")
-                .setRegion("us-east-1")
-                .build();
-        }
 
         // Region (default to us-east-1 if not specified)
         String region = config.getRegion();

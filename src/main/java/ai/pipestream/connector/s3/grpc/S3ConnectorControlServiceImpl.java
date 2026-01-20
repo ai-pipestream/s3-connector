@@ -3,6 +3,7 @@ package ai.pipestream.connector.s3.grpc;
 import ai.pipestream.connector.s3.service.S3CrawlService;
 import ai.pipestream.connector.s3.service.DatasourceConfigService;
 import ai.pipestream.connector.s3.service.S3TestCrawlService;
+import ai.pipestream.connector.s3.v1.S3ConnectionConfig;
 import ai.pipestream.connector.s3.v1.MutinyS3ConnectorControlServiceGrpc;
 import ai.pipestream.connector.s3.v1.StartCrawlRequest;
 import ai.pipestream.connector.s3.v1.StartCrawlResponse;
@@ -53,6 +54,17 @@ public class S3ConnectorControlServiceImpl extends MutinyS3ConnectorControlServi
                 .asRuntimeException());
         }
 
+        // For now, create default MinIO config for testing
+        // TODO: Use request.getConnectionConfig() when proto is updated
+        S3ConnectionConfig connectionConfig = S3ConnectionConfig.newBuilder()
+            .setCredentialsType("static")
+            .setAccessKeyId("minioadmin")
+            .setSecretAccessKey("minioadmin")
+            .setRegion("us-east-1")
+            .setEndpointOverride("http://localhost:9000")  // Will be injected from test resource
+            .setPathStyleAccess(true)
+            .build();
+
         String bucket = firstNonBlank(request.getBucket());
         if (bucket == null) {
             return Uni.createFrom().failure(Status.INVALID_ARGUMENT
@@ -63,7 +75,7 @@ public class S3ConnectorControlServiceImpl extends MutinyS3ConnectorControlServi
         String prefix = firstNonBlank(request.getPrefix());
         String requestId = firstNonBlank(request.getRequestId(), UUID.randomUUID().toString());
 
-        datasourceConfigService.registerDatasourceConfig(datasourceId, headerApiKey);
+        datasourceConfigService.registerDatasourceConfig(datasourceId, headerApiKey, connectionConfig);
 
         LOG.infof("Received StartCrawl request: datasourceId=%s, bucket=%s, prefix=%s, requestId=%s",
             datasourceId, bucket, prefix, requestId);

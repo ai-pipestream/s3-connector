@@ -4,6 +4,9 @@ import ai.pipestream.connector.s3.entity.DatasourceConfigEntity;
 import ai.pipestream.connector.s3.v1.S3ConnectionConfig;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.protobuf.InvalidProtocolBufferException;
+import com.google.protobuf.util.JsonFormat;
+import io.quarkus.hibernate.reactive.panache.common.WithTransaction;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -71,6 +74,7 @@ public class DatasourceConfigService {
      * @throws IllegalArgumentException if any parameter is null, blank, or invalid
      * @since 1.0.0
      */
+    @WithTransaction
     public Uni<Void> registerDatasourceConfig(String datasourceId, String apiKey, S3ConnectionConfig s3Config) {
         if (datasourceId == null || datasourceId.isBlank()) {
             throw new IllegalArgumentException("Datasource ID is required");
@@ -84,9 +88,10 @@ public class DatasourceConfigService {
 
         return Uni.createFrom().item(() -> {
             try {
-                String s3ConfigJson = objectMapper.writeValueAsString(s3Config);
+                // Use Protobuf's JsonFormat for serializing protobuf messages
+                String s3ConfigJson = JsonFormat.printer().print(s3Config);
                 return new Object[]{s3ConfigJson, new DatasourceConfig(datasourceId, apiKey, s3Config)};
-            } catch (JsonProcessingException e) {
+            } catch (InvalidProtocolBufferException e) {
                 throw new RuntimeException("Failed to serialize S3 config", e);
             }
         }).flatMap(tuple -> {
@@ -139,6 +144,7 @@ public class DatasourceConfigService {
      *         or {@link IllegalStateException} if no configuration is registered
      * @since 1.0.0
      */
+    @WithTransaction
     public Uni<DatasourceConfig> getDatasourceConfig(String datasourceId) {
         LOG.debugf("Getting datasource config: datasourceId=%s", datasourceId);
 
@@ -161,14 +167,18 @@ public class DatasourceConfigService {
                 }
 
                 try {
-                    S3ConnectionConfig s3Config = objectMapper.readValue(entity.s3ConfigJson, S3ConnectionConfig.class);
+                    // Use Protobuf's JsonFormat for deserializing protobuf messages
+                    S3ConnectionConfig.Builder builder = S3ConnectionConfig.newBuilder();
+                    JsonFormat.parser().merge(entity.s3ConfigJson, builder);
+                    S3ConnectionConfig s3Config = builder.build();
+
                     DatasourceConfig config = new DatasourceConfig(datasourceId, entity.apiKey, s3Config);
 
                     // Cache for future use
                     configCache.put(datasourceId, config);
 
                     return Uni.createFrom().item(config);
-                } catch (JsonProcessingException e) {
+                } catch (InvalidProtocolBufferException e) {
                     return Uni.createFrom().failure(new RuntimeException(
                         "Failed to deserialize S3 config for datasourceId=" + datasourceId, e));
                 }

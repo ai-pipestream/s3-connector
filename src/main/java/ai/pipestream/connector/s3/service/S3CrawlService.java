@@ -94,18 +94,22 @@ public class S3CrawlService {
         LOG.infof("Starting S3 crawl: datasourceId=%s, bucket=%s, prefix=%s", datasourceId, bucket, prefix);
 
         AtomicInteger totalObjects = new AtomicInteger(0);
-        return crawlBucketInternal(datasourceId, bucket, prefix, null, totalObjects)
-            .invoke(() -> LOG.infof("Completed S3 crawl: datasourceId=%s, bucket=%s", datasourceId, bucket))
-            .replaceWithVoid();
+        // Fetch config once (in Vert.x context) and pass it through
+        return datasourceConfigService.getDatasourceConfig(datasourceId)
+            .flatMap(datasourceConfig ->
+                crawlBucketInternal(datasourceId, datasourceConfig, bucket, prefix, null, totalObjects)
+                    .invoke(() -> LOG.infof("Completed S3 crawl: datasourceId=%s, bucket=%s", datasourceId, bucket))
+                    .replaceWithVoid()
+            );
     }
 
     private Uni<Void> crawlBucketInternal(String datasourceId,
+                                          DatasourceConfigService.DatasourceConfig datasourceConfig,
                                           String bucket,
                                           String prefix,
                                           String continuationToken,
                                           AtomicInteger totalObjects) {
-        return datasourceConfigService.getDatasourceConfig(datasourceId)
-            .flatMap(datasourceConfig ->
+        return
                 // Get datasource-specific S3 client
                 clientFactory.getOrCreateClient(datasourceId, datasourceConfig.s3Config())
                     .flatMap(client -> {
@@ -128,12 +132,12 @@ public class S3CrawlService {
                         ListObjectsV2Request request = requestBuilder.build();
 
                         return Uni.createFrom().completionStage(client.listObjectsV2(request))
-                            .flatMap(response -> handleListResponse(datasourceId, bucket, actualPrefix, response, totalObjects));
-                    })
-            );
+                            .flatMap(response -> handleListResponse(datasourceId, datasourceConfig, bucket, actualPrefix, response, totalObjects));
+                    });
     }
 
     private Uni<Void> handleListResponse(String datasourceId,
+                                         DatasourceConfigService.DatasourceConfig datasourceConfig,
                                          String bucket,
                                          String actualPrefix,
                                          ListObjectsV2Response response,
@@ -147,7 +151,7 @@ public class S3CrawlService {
                     .invoke(() -> LOG.infof("Emitted %d crawl events for bucket=%s, prefix=%s",
                         totalObjects.get(), bucket, actualPrefix));
             }
-            return crawlBucketInternal(datasourceId, bucket, actualPrefix, nextToken, totalObjects);
+            return crawlBucketInternal(datasourceId, datasourceConfig, bucket, actualPrefix, nextToken, totalObjects);
         }
 
         // Convert each S3Object to a Uni<Void> for publishing
@@ -171,7 +175,7 @@ public class S3CrawlService {
         }
 
         return sendAll
-            .flatMap(ignored -> crawlBucketInternal(datasourceId, bucket, actualPrefix, nextToken, totalObjects));
+            .flatMap(ignored -> crawlBucketInternal(datasourceId, datasourceConfig, bucket, actualPrefix, nextToken, totalObjects));
     }
 
     private S3CrawlEvent createCrawlEvent(String datasourceId, String bucket, S3Object s3Object) {

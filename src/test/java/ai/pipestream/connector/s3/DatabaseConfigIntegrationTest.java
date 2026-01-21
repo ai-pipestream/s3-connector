@@ -2,6 +2,8 @@ package ai.pipestream.connector.s3;
 
 import ai.pipestream.connector.s3.service.DatasourceConfigService;
 import ai.pipestream.connector.s3.v1.S3ConnectionConfig;
+import ai.pipestream.test.support.MinioTestResource;
+import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.vertx.RunOnVertxContext;
 import io.quarkus.test.vertx.UniAsserter;
@@ -30,6 +32,7 @@ import static org.assertj.core.api.Assertions.*;
  * @since 1.0.0
  */
 @QuarkusTest
+@QuarkusTestResource(MinioTestResource.class)
 class DatabaseConfigIntegrationTest {
 
     @Inject
@@ -54,9 +57,8 @@ class DatabaseConfigIntegrationTest {
             .setPathStyleAccess(true)
             .build();
 
-        // Save configuration
-        datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, s3Config)
-            .await().indefinitely();
+        // Save configuration (non-blocking)
+        asserter.execute(() -> datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, s3Config));
 
         // Test retrieving configuration
         asserter.assertThat(
@@ -91,9 +93,8 @@ class DatabaseConfigIntegrationTest {
             .setRegion("us-east-1")
             .build();
 
-        // Save initial config
-        datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, initialConfig)
-            .await().indefinitely();
+        // Save initial config (non-blocking)
+        asserter.execute(() -> datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, initialConfig));
 
         // Update configuration with credentials
         S3ConnectionConfig updatedConfig = S3ConnectionConfig.newBuilder()
@@ -103,9 +104,8 @@ class DatabaseConfigIntegrationTest {
             .setRegion("us-west-2")
             .build();
 
-        // Save updated config
-        datasourceConfigService.registerDatasourceConfig(datasourceId, "updated-api-key", updatedConfig)
-            .await().indefinitely();
+        // Save updated config (non-blocking)
+        asserter.execute(() -> datasourceConfigService.registerDatasourceConfig(datasourceId, "updated-api-key", updatedConfig));
 
         // Verify updated configuration
         asserter.assertThat(
@@ -136,9 +136,8 @@ class DatabaseConfigIntegrationTest {
             .setRegion("us-east-1")
             .build();
 
-        // Save configuration
-        datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, s3Config)
-            .await().indefinitely();
+        // Save configuration (non-blocking)
+        asserter.execute(() -> datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, s3Config));
 
         // First retrieval (from database, then cached)
         asserter.assertThat(
@@ -165,12 +164,11 @@ class DatabaseConfigIntegrationTest {
     void testMissingConfigurationError(UniAsserter asserter) {
         String nonExistentId = "non-existent-datasource";
 
-        asserter.assertThat(
+        asserter.assertFailedWith(
             () -> datasourceConfigService.getDatasourceConfig(nonExistentId),
-            asserter::fail,
-            error -> {
-                assertThat(error).isInstanceOf(IllegalStateException.class);
-                assertThat(error.getMessage()).contains(nonExistentId);
+            throwable -> {
+                assertThat(throwable).isInstanceOf(IllegalStateException.class);
+                assertThat(throwable.getMessage()).contains(nonExistentId);
             }
         );
     }
@@ -187,31 +185,27 @@ class DatabaseConfigIntegrationTest {
             .build();
 
         // Test null datasource ID
-        asserter.assertThat(
+        asserter.assertFailedWith(
             () -> datasourceConfigService.registerDatasourceConfig(null, "api-key", s3Config),
-            asserter::fail,
-            error -> assertThat(error).isInstanceOf(IllegalArgumentException.class)
+            throwable -> assertThat(throwable).isInstanceOf(IllegalArgumentException.class)
         );
 
         // Test blank datasource ID
-        asserter.assertThat(
+        asserter.assertFailedWith(
             () -> datasourceConfigService.registerDatasourceConfig("", "api-key", s3Config),
-            asserter::fail,
-            error -> assertThat(error).isInstanceOf(IllegalArgumentException.class)
+            throwable -> assertThat(throwable).isInstanceOf(IllegalArgumentException.class)
         );
 
         // Test null API key
-        asserter.assertThat(
+        asserter.assertFailedWith(
             () -> datasourceConfigService.registerDatasourceConfig("datasource-id", null, s3Config),
-            asserter::fail,
-            error -> assertThat(error).isInstanceOf(IllegalArgumentException.class)
+            throwable -> assertThat(throwable).isInstanceOf(IllegalArgumentException.class)
         );
 
         // Test null S3 config
-        asserter.assertThat(
+        asserter.assertFailedWith(
             () -> datasourceConfigService.registerDatasourceConfig("datasource-id", "api-key", null),
-            asserter::fail,
-            error -> assertThat(error).isInstanceOf(IllegalArgumentException.class)
+            throwable -> assertThat(throwable).isInstanceOf(IllegalArgumentException.class)
         );
     }
 
@@ -222,17 +216,15 @@ class DatabaseConfigIntegrationTest {
     @RunOnVertxContext
     void testInvalidRetrievalParameters(UniAsserter asserter) {
         // Test null datasource ID
-        asserter.assertThat(
+        asserter.assertFailedWith(
             () -> datasourceConfigService.getDatasourceConfig(null),
-            asserter::fail,
-            error -> assertThat(error).isInstanceOf(IllegalArgumentException.class)
+            throwable -> assertThat(throwable).isInstanceOf(IllegalArgumentException.class)
         );
 
         // Test blank datasource ID
-        asserter.assertThat(
+        asserter.assertFailedWith(
             () -> datasourceConfigService.getDatasourceConfig(""),
-            asserter::fail,
-            error -> assertThat(error).isInstanceOf(IllegalArgumentException.class)
+            throwable -> assertThat(throwable).isInstanceOf(IllegalArgumentException.class)
         );
     }
 }

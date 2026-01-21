@@ -3,11 +3,13 @@ package ai.pipestream.connector.s3;
 import ai.pipestream.connector.s3.service.S3CrawlService;
 import ai.pipestream.connector.s3.service.DatasourceConfigService;
 import ai.pipestream.connector.s3.v1.S3ConnectionConfig;
+import ai.pipestream.test.support.MinioTestResource;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.vertx.RunOnVertxContext;
 import io.quarkus.test.vertx.UniAsserter;
 import jakarta.inject.Inject;
+import org.eclipse.microprofile.config.ConfigProvider;
 import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
@@ -51,46 +53,48 @@ import static org.junit.jupiter.api.Assertions.*;
 @QuarkusTestResource(MinioTestResource.class)
 class S3CrawlServiceBasicTest {
 
+    // MinioTestResource constants - hardcoded for tests
+    private static final String ACCESS_KEY = "testuser";
+    private static final String SECRET_KEY = "testpassword";
+
     @Inject
     S3CrawlService crawlService;
 
     @Inject
     DatasourceConfigService datasourceConfigService;
-    
-    // MinIO endpoint will be set via QuarkusTestResource properties
-    @org.eclipse.microprofile.config.inject.ConfigProperty(name = "quarkus.s3.endpoint-override")
-    String s3Endpoint;
 
     @Test
     @RunOnVertxContext
     void testMinioConnectionAndBasicCrawl(UniAsserter asserter) {
         String datasourceId = "test-datasource-1";
         String apiKey = "test-api-key";
-        String bucket = "test-bucket"; // From MinioTestResource
+        String bucket = MinioTestResource.BUCKET;
         String testKey = "test-file.txt";
         String testContent = "Hello, S3!";
+        // Get endpoint from MinioTestResource static field
+        String s3Endpoint = MinioTestResource.getSharedEndpoint();
+        assertNotNull(s3Endpoint, "S3 endpoint should be set by MinioTestResource");
+        String accessKey = MinioTestResource.ACCESS_KEY;
+        String secretKey = MinioTestResource.SECRET_KEY;
 
         // Create MinIO S3 connection config
         S3ConnectionConfig s3Config = S3ConnectionConfig.newBuilder()
             .setCredentialsType("static")
-            .setAccessKeyId("minioadmin")  // From MinioTestResource
-            .setSecretAccessKey("minioadmin")  // From MinioTestResource
+            .setAccessKeyId(accessKey)
+            .setSecretAccessKey(secretKey)
             .setRegion("us-east-1")
             .setEndpointOverride(s3Endpoint)  // From QuarkusTestResource properties
             .setPathStyleAccess(true)  // MinIO requires path-style access
             .build();
 
         // Register datasource config with MinIO connection details
-        datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, s3Config);
+        asserter.execute(() -> datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, s3Config));
 
         // Upload a test file to MinIO
         asserter.execute(() -> {
             assertNotNull(s3Endpoint, "MinIO endpoint should be set by QuarkusTestResource");
 
-            AwsBasicCredentials credentials = AwsBasicCredentials.create(
-                "minioadmin", // From MinioTestResource
-                "minioadmin"  // From MinioTestResource
-            );
+            AwsBasicCredentials credentials = AwsBasicCredentials.create(accessKey, secretKey);
 
             try (S3Client s3 = S3Client.builder()
                     .credentialsProvider(StaticCredentialsProvider.create(credentials))

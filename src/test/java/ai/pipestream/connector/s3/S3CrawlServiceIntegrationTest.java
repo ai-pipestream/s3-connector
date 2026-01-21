@@ -52,7 +52,9 @@ class S3CrawlServiceIntegrationTest {
             .setCredentialsType("anonymous")
             .setRegion("us-east-1")
             .build();
-        datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, s3Config);
+
+        // Register datasource configuration (non-blocking)
+        asserter.execute(() -> datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, s3Config));
 
         // Test that crawl service can list and process objects from the public bucket
         asserter.assertThat(() -> crawlService.crawlBucket(datasourceId, bucket, prefix),
@@ -83,7 +85,9 @@ class S3CrawlServiceIntegrationTest {
             .setCredentialsType("anonymous")
             .setRegion("us-east-1")
             .build();
-        datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, s3Config);
+
+        // Register datasource configuration (non-blocking)
+        asserter.execute(() -> datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, s3Config));
 
         // Test that crawl service can list objects at the root level
         asserter.assertThat(() -> crawlService.crawlBucket(datasourceId, bucket, prefix),

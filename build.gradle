@@ -51,7 +51,7 @@ dependencies {
     implementation 'io.quarkus:quarkus-smallrye-health'
     implementation 'io.quarkus:quarkus-config-yaml'
     implementation 'io.quarkus:quarkus-hibernate-reactive-panache'
-    implementation 'io.quarkus:quarkus-jdbc-postgresql'
+    implementation 'io.quarkus:quarkus-reactive-pg-client'
     
     // AWS S3 dependencies (from Amazon Services BOM)
     implementation 'io.quarkiverse.amazonservices:quarkus-amazon-s3'
@@ -81,9 +81,11 @@ dependencies {
     testImplementation libs.awaitility
     testImplementation libs.apicurio.registry.protobuf.serde
     testImplementation(testFixtures("ai.pipestream:pipestream-test-support:${pipestreamBomVersion}"))
+    // Sample data for testing
+    testImplementation 'ai.pipestream:test-documents:0.2.3-SNAPSHOT'
     // Testcontainers - version managed by pipestream-bom
     testImplementation 'org.testcontainers:testcontainers'
-    testImplementation 'org.testcontainers:testcontainers-minio:2.0.1'
+    testImplementation 'org.testcontainers:testcontainers-minio:2.0.3'
     testImplementation 'org.assertj:assertj-core:3.27.6'
 }
 

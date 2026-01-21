@@ -5,10 +5,15 @@ import ai.pipestream.connector.s3.service.DatasourceConfigService;
 import ai.pipestream.connector.s3.v1.S3ConnectionConfig;
 import ai.pipestream.connector.s3.v1.StartCrawlRequest;
 import ai.pipestream.connector.s3.v1.StartCrawlResponse;
-import ai.pipestream.connector.s3.grpc.S3ConnectorControlServiceImpl;
+import ai.pipestream.connector.s3.v1.MutinyS3ConnectorControlServiceGrpc;
 import ai.pipestream.test.support.ConnectorIntakeWireMockTestResource;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
+import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
+import io.quarkus.test.common.http.TestHTTPResource;
+import org.eclipse.microprofile.config.ConfigProvider;
+import java.net.URL;
 import io.quarkus.test.vertx.RunOnVertxContext;
 import io.quarkus.test.vertx.UniAsserter;
 import io.smallrye.mutiny.Uni;
@@ -43,18 +48,46 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 1.0.0
  */
 @QuarkusTest
-@QuarkusTestResource(ai.pipestream.test.support.MinioTestResource.class)
+@QuarkusTestResource(ai.pipestream.test.support.MinioWithSampleDataTestResource.class)
 @QuarkusTestResource(ConnectorIntakeWireMockTestResource.class)
 class EndToEndIntegrationTest {
 
-    @Inject
-    S3ConnectorControlServiceImpl controlService;
+    @TestHTTPResource
+    URL testUrl;
 
     @Inject
     S3CrawlService crawlService;
 
     @Inject
     DatasourceConfigService datasourceConfigService;
+
+    private MutinyS3ConnectorControlServiceGrpc.MutinyS3ConnectorControlServiceStub controlService;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setupGrpcClient() {
+        int port = testUrl.getPort();
+        // Create a gRPC channel to the test application
+        ManagedChannel channel = ManagedChannelBuilder.forAddress("localhost", port)
+                .usePlaintext()
+                .build();
+        controlService = MutinyS3ConnectorControlServiceGrpc.newMutinyStub(channel);
+    }
+
+    private static String s3Endpoint() {
+        String endpoint = ai.pipestream.test.support.MinioTestResource.getSharedEndpoint();
+        if (endpoint == null) {
+            throw new IllegalStateException("S3 endpoint not set by MinioTestResource");
+        }
+        return endpoint;
+    }
+
+    private static String accessKey() {
+        return ai.pipestream.test.support.MinioTestResource.ACCESS_KEY;
+    }
+
+    private static String secretKey() {
+        return ai.pipestream.test.support.MinioTestResource.SECRET_KEY;
+    }
 
     /**
      * Tests the complete end-to-end flow from gRPC API to intake upload.
@@ -70,16 +103,15 @@ class EndToEndIntegrationTest {
         // Create S3 configuration for MinIO
         S3ConnectionConfig s3Config = S3ConnectionConfig.newBuilder()
             .setCredentialsType("static")
-            .setAccessKeyId("minioadmin")
-            .setSecretAccessKey("minioadmin")
+            .setAccessKeyId(accessKey())
+            .setSecretAccessKey(secretKey())
             .setRegion("us-east-1")
-            .setEndpointOverride("http://localhost:9000")
+            .setEndpointOverride(s3Endpoint())
             .setPathStyleAccess(true)
             .build();
 
-        // Register datasource configuration
-        datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, s3Config)
-            .await().indefinitely();
+        // Register datasource configuration (non-blocking)
+        asserter.execute(() -> datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, s3Config));
 
         // Create and send gRPC crawl request
         StartCrawlRequest request = StartCrawlRequest.newBuilder()
@@ -124,21 +156,20 @@ class EndToEndIntegrationTest {
         // Create S3 configuration
         S3ConnectionConfig s3Config = S3ConnectionConfig.newBuilder()
             .setCredentialsType("static")
-            .setAccessKeyId("minioadmin")
-            .setSecretAccessKey("minioadmin")
+            .setAccessKeyId(accessKey())
+            .setSecretAccessKey(secretKey())
             .setRegion("us-east-1")
-            .setEndpointOverride("http://localhost:9000")
+            .setEndpointOverride(s3Endpoint())
             .setPathStyleAccess(true)
             .build();
 
-        // Register datasource configuration
-        datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, s3Config)
-            .await().indefinitely();
+        // Register datasource configuration (non-blocking)
+        asserter.execute(() -> datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, s3Config));
 
         // Test direct crawl service call
         asserter.assertThat(
             () -> crawlService.crawlBucket(datasourceId, bucket, null),
-            () -> {
+            result -> {
                 // Crawl should complete successfully
                 // Events should be emitted to Kafka
                 // In a more complete test, we would verify event emission
@@ -155,26 +186,26 @@ class EndToEndIntegrationTest {
         String datasourceId = "test-object-crawl";
         String apiKey = "test-object-api-key";
         String bucket = "test-bucket";
-        String testKey = "test-file.txt";
+        // Use a file from test-documents jar (uploaded by MinioWithSampleDataTestResource)
+        String testKey = "sample_text/sample.txt";
 
         // Create S3 configuration
         S3ConnectionConfig s3Config = S3ConnectionConfig.newBuilder()
             .setCredentialsType("static")
-            .setAccessKeyId("minioadmin")
-            .setSecretAccessKey("minioadmin")
+            .setAccessKeyId(accessKey())
+            .setSecretAccessKey(secretKey())
             .setRegion("us-east-1")
-            .setEndpointOverride("http://localhost:9000")
+            .setEndpointOverride(s3Endpoint())
             .setPathStyleAccess(true)
             .build();
 
-        // Register datasource configuration
-        datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, s3Config)
-            .await().indefinitely();
+        // Register datasource configuration (non-blocking)
+        asserter.execute(() -> datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, s3Config));
 
         // Test individual object crawl
         asserter.assertThat(
             () -> crawlService.crawlObject(datasourceId, bucket, testKey),
-            () -> {
+            result -> {
                 // Object crawl should complete successfully
                 // Event should be emitted and processed
             }
@@ -192,11 +223,10 @@ class EndToEndIntegrationTest {
             .setBucket("test-bucket")
             .build();
 
-        asserter.assertThat(
+        asserter.assertFailedWith(
             () -> controlService.startCrawl(missingDatasourceRequest),
-            asserter::fail,
-            error -> {
-                assertTrue(error instanceof RuntimeException);
+            throwable -> {
+                assertTrue(throwable instanceof RuntimeException);
                 // Should be INVALID_ARGUMENT status from gRPC
             }
         );
@@ -206,11 +236,10 @@ class EndToEndIntegrationTest {
             .setDatasourceId("test-datasource")
             .build();
 
-        asserter.assertThat(
+        asserter.assertFailedWith(
             () -> controlService.startCrawl(missingBucketRequest),
-            asserter::fail,
-            error -> {
-                assertTrue(error instanceof RuntimeException);
+            throwable -> {
+                assertTrue(throwable instanceof RuntimeException);
                 // Should be INVALID_ARGUMENT status from gRPC
             }
         );
@@ -221,11 +250,10 @@ class EndToEndIntegrationTest {
             .setBucket("test-bucket")
             .build();
 
-        asserter.assertThat(
+        asserter.assertFailedWith(
             () -> controlService.startCrawl(missingConfigRequest),
-            asserter::fail,
-            error -> {
-                assertTrue(error instanceof RuntimeException);
+            throwable -> {
+                assertTrue(throwable instanceof RuntimeException);
                 // Should be INVALID_ARGUMENT status from gRPC
             }
         );
@@ -252,9 +280,8 @@ class EndToEndIntegrationTest {
             .setPathStyleAccess(true)
             .build();
 
-        // Register datasource configuration
-        datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, s3Config)
-            .await().indefinitely();
+        // Register datasource configuration (non-blocking)
+        asserter.execute(() -> datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, s3Config));
 
         // Create gRPC request using the registered config
         StartCrawlRequest request = StartCrawlRequest.newBuilder()

@@ -117,7 +117,8 @@ public class ConnectorIntakeClient {
 
         HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(uri)
             .timeout(config.intake().requestTimeout())
-            .header("Content-Length", String.valueOf(sizeBytes))
+            // Note: Content-Length is automatically set by HTTP client from BodyPublisher.contentLength()
+            // Manually setting it causes IllegalArgumentException: restricted header name: "Content-Length"
             .header("x-datasource-id", datasourceId)
             .header("x-api-key", apiKey)
             .header("x-source-uri", sourceUrl)

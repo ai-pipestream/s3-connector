@@ -52,7 +52,8 @@ dependencies {
     implementation 'io.quarkus:quarkus-config-yaml'
     implementation 'io.quarkus:quarkus-hibernate-reactive-panache'
     implementation 'io.quarkus:quarkus-reactive-pg-client'
-    
+    implementation("io.quarkus:quarkus-jdbc-postgresql")
+ 
     // AWS S3 dependencies (from Amazon Services BOM)
     implementation 'io.quarkiverse.amazonservices:quarkus-amazon-s3'
     implementation 'software.amazon.awssdk:s3'

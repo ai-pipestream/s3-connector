@@ -89,7 +89,7 @@ public class S3CrawlEventConsumer {
                         event.getBucket(),
                         event.getKey(),
                         s3Response.response().contentType(),
-                        event.getSizeBytes(),
+                        s3Response.response().contentLength(),  // Use actual size from S3, not event
                         s3Response
                     ))
                             .onFailure().invoke(error -> {

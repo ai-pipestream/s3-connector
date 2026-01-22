@@ -6,8 +6,10 @@ import ai.pipestream.connector.s3.v1.S3ConnectionConfig;
 import ai.pipestream.connector.s3.v1.S3CrawlEvent;
 import ai.pipestream.test.support.MinioTestResource;
 import ai.pipestream.test.support.MinioWithSampleDataTestResource;
+import ai.pipestream.test.support.kafka.IsolatedKafkaTopicsProfile;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
+import io.quarkus.test.junit.TestProfile;
 import io.quarkus.test.vertx.RunOnVertxContext;
 import io.quarkus.test.vertx.UniAsserter;
 import io.smallrye.reactive.messaging.kafka.api.OutgoingKafkaRecordMetadata;
@@ -18,6 +20,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.eclipse.microprofile.reactive.messaging.Message;
 import org.junit.jupiter.api.Test;
 
@@ -68,14 +71,22 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 1.0.0
  */
 @QuarkusTest
+@TestProfile(S3CrawlEventCaptureTest.CaptureTestProfile.class)
 @QuarkusTestResource(MinioWithSampleDataTestResource.class)
 class S3CrawlEventCaptureTest {
+
+    public static class CaptureTestProfile extends IsolatedKafkaTopicsProfile {
+        // Inherits the unique topic generation
+    }
 
     @Inject
     S3CrawlService crawlService;
 
     @Inject
     DatasourceConfigService datasourceConfigService;
+
+    @ConfigProperty(name = "mp.messaging.outgoing.s3-crawl-events-out.topic")
+    String kafkaTopic;
 
     /**
      * Crawls all sample documents and saves crawl events to src/test/resources.
@@ -186,7 +197,8 @@ class S3CrawlEventCaptureTest {
         props.put("enable.auto.commit", "false");
 
         try (KafkaConsumer<String, byte[]> consumer = new KafkaConsumer<>(props)) {
-            consumer.subscribe(List.of("s3-crawl-events-out"));
+            consumer.subscribe(List.of(kafkaTopic));
+            System.out.printf("Consuming from Kafka topic: %s%n", kafkaTopic);
 
             // Poll for events (with timeout)
             ConsumerRecords<String, byte[]> records = consumer.poll(Duration.ofSeconds(5));

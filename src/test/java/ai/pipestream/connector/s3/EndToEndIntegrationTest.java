@@ -9,8 +9,15 @@ import ai.pipestream.connector.s3.v1.MutinyS3ConnectorControlServiceGrpc;
 import ai.pipestream.test.support.ConnectorIntakeWireMockTestResource;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
+import io.grpc.CallOptions;
+import io.grpc.Channel;
+import io.grpc.ClientCall;
+import io.grpc.ClientInterceptor;
+import io.grpc.ForwardingClientCall;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
+import io.grpc.Metadata;
+import io.grpc.MethodDescriptor;
 import io.quarkus.test.common.http.TestHTTPResource;
 import org.eclipse.microprofile.config.ConfigProvider;
 import java.net.URL;
@@ -66,11 +73,43 @@ class EndToEndIntegrationTest {
     @org.junit.jupiter.api.BeforeEach
     void setupGrpcClient() {
         int port = testUrl.getPort();
-        // Create a gRPC channel to the test application
+        // Create a gRPC channel to the test application with API key header
         ManagedChannel channel = ManagedChannelBuilder.forAddress("localhost", port)
                 .usePlaintext()
+                .intercept(new ApiKeyClientInterceptor("test-api-key"))
                 .build();
         controlService = MutinyS3ConnectorControlServiceGrpc.newMutinyStub(channel);
+    }
+
+    /**
+     * gRPC client interceptor that adds x-api-key header to all requests.
+     */
+    private static class ApiKeyClientInterceptor implements ClientInterceptor {
+        private static final Metadata.Key<String> API_KEY_HEADER =
+            Metadata.Key.of("x-api-key", Metadata.ASCII_STRING_MARSHALLER);
+
+        private final String apiKey;
+
+        public ApiKeyClientInterceptor(String apiKey) {
+            this.apiKey = apiKey;
+        }
+
+        @Override
+        public <ReqT, RespT> ClientCall<ReqT, RespT> interceptCall(
+                MethodDescriptor<ReqT, RespT> method,
+                CallOptions callOptions,
+                Channel next) {
+
+            return new ForwardingClientCall.SimpleForwardingClientCall<ReqT, RespT>(
+                    next.newCall(method, callOptions)) {
+
+                @Override
+                public void start(Listener<RespT> responseListener, Metadata headers) {
+                    headers.put(API_KEY_HEADER, apiKey);
+                    super.start(responseListener, headers);
+                }
+            };
+        }
     }
 
     private static String s3Endpoint() {
@@ -270,13 +309,13 @@ class EndToEndIntegrationTest {
         String apiKey = "test-config-api-key";
         String bucket = "test-bucket";
 
-        // Create S3 configuration with KMS references
+        // Create S3 configuration with direct credentials (not KMS)
         S3ConnectionConfig s3Config = S3ConnectionConfig.newBuilder()
             .setCredentialsType("static")
-            .setKmsAccessKeyRef("kms://dev/s3/access-key")
-            .setKmsSecretKeyRef("kms://dev/s3/secret-key")
+            .setAccessKeyId(accessKey())
+            .setSecretAccessKey(secretKey())
             .setRegion("us-east-1")
-            .setEndpointOverride("http://localhost:9000")
+            .setEndpointOverride(s3Endpoint())
             .setPathStyleAccess(true)
             .build();
 

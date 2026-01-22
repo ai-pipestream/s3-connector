@@ -4,6 +4,7 @@ import ai.pipestream.connector.s3.service.S3CrawlService;
 import ai.pipestream.connector.s3.service.DatasourceConfigService;
 import ai.pipestream.connector.s3.v1.S3ConnectionConfig;
 import ai.pipestream.connector.s3.v1.S3CrawlEvent;
+import ai.pipestream.test.support.MinioTestResource;
 import ai.pipestream.test.support.MinioWithSampleDataTestResource;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
@@ -90,15 +91,15 @@ class S3CrawlEventCaptureTest {
     void testCrawlAllSampleDocumentsAndCaptureEvents(UniAsserter asserter) throws Exception {
         String datasourceId = "sample-docs-crawler";
         String apiKey = "test-api-key";
-        String bucket = MinioWithSampleDataTestResource.BUCKET;
+        String bucket = MinioTestResource.BUCKET;
 
         // Create S3 configuration for MinIO
         S3ConnectionConfig s3Config = S3ConnectionConfig.newBuilder()
             .setCredentialsType("static")
-            .setAccessKeyId(MinioWithSampleDataTestResource.ACCESS_KEY)
-            .setSecretAccessKey(MinioWithSampleDataTestResource.SECRET_KEY)
+            .setAccessKeyId(MinioTestResource.ACCESS_KEY)
+            .setSecretAccessKey(MinioTestResource.SECRET_KEY)
             .setRegion("us-east-1")
-            .setEndpointOverride(MinioWithSampleDataTestResource.getSharedEndpoint())
+            .setEndpointOverride(MinioTestResource.getSharedEndpoint())
             .setPathStyleAccess(true)
             .build();
 

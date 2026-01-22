@@ -5,6 +5,7 @@ import ai.pipestream.connector.s3.service.DatasourceConfigService;
 import ai.pipestream.connector.s3.v1.S3ConnectionConfig;
 import ai.pipestream.connector.s3.v1.S3CrawlEvent;
 import ai.pipestream.test.support.ConnectorIntakeWireMockTestResource;
+import ai.pipestream.test.support.MinioTestResource;
 import ai.pipestream.test.support.MinioWithSampleDataTestResource;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
@@ -120,10 +121,10 @@ class S3IntakeUploadTest {
         // Register datasource configuration
         S3ConnectionConfig s3Config = S3ConnectionConfig.newBuilder()
             .setCredentialsType("static")
-            .setAccessKeyId(MinioWithSampleDataTestResource.ACCESS_KEY)
-            .setSecretAccessKey(MinioWithSampleDataTestResource.SECRET_KEY)
+            .setAccessKeyId(MinioTestResource.ACCESS_KEY)
+            .setSecretAccessKey(MinioTestResource.SECRET_KEY)
             .setRegion("us-east-1")
-            .setEndpointOverride(MinioWithSampleDataTestResource.getSharedEndpoint())
+            .setEndpointOverride(MinioTestResource.getSharedEndpoint())
             .setPathStyleAccess(true)
             .build();
 
@@ -136,25 +137,25 @@ class S3IntakeUploadTest {
             S3CrawlEvent.newBuilder()
                 .setEventId("test-event-1")
                 .setDatasourceId(DATASOURCE_ID)
-                .setBucket(MinioWithSampleDataTestResource.BUCKET)
+                .setBucket(MinioTestResource.BUCKET)
                 .setKey("sample_audio/sample.mp3")
-                .setSourceUrl("s3://" + MinioWithSampleDataTestResource.BUCKET + "/sample_audio/sample.mp3")
+                .setSourceUrl("s3://" + MinioTestResource.BUCKET + "/sample_audio/sample.mp3")
                 .setSizeBytes(1000)
                 .build(),
             S3CrawlEvent.newBuilder()
                 .setEventId("test-event-2")
                 .setDatasourceId(DATASOURCE_ID)
-                .setBucket(MinioWithSampleDataTestResource.BUCKET)
+                .setBucket(MinioTestResource.BUCKET)
                 .setKey("sample_text/sample.txt")
-                .setSourceUrl("s3://" + MinioWithSampleDataTestResource.BUCKET + "/sample_text/sample.txt")
+                .setSourceUrl("s3://" + MinioTestResource.BUCKET + "/sample_text/sample.txt")
                 .setSizeBytes(500)
                 .build(),
             S3CrawlEvent.newBuilder()
                 .setEventId("test-event-3")
                 .setDatasourceId(DATASOURCE_ID)
-                .setBucket(MinioWithSampleDataTestResource.BUCKET)
+                .setBucket(MinioTestResource.BUCKET)
                 .setKey("sample_image/sample.png")
-                .setSourceUrl("s3://" + MinioWithSampleDataTestResource.BUCKET + "/sample_image/sample.png")
+                .setSourceUrl("s3://" + MinioTestResource.BUCKET + "/sample_image/sample.png")
                 .setSizeBytes(2000)
                 .build()
         );
@@ -217,10 +218,10 @@ class S3IntakeUploadTest {
         // Register datasource configuration
         S3ConnectionConfig s3Config = S3ConnectionConfig.newBuilder()
             .setCredentialsType("static")
-            .setAccessKeyId(MinioWithSampleDataTestResource.ACCESS_KEY)
-            .setSecretAccessKey(MinioWithSampleDataTestResource.SECRET_KEY)
+            .setAccessKeyId(MinioTestResource.ACCESS_KEY)
+            .setSecretAccessKey(MinioTestResource.SECRET_KEY)
             .setRegion("us-east-1")
-            .setEndpointOverride(MinioWithSampleDataTestResource.getSharedEndpoint())
+            .setEndpointOverride(MinioTestResource.getSharedEndpoint())
             .setPathStyleAccess(true)
             .build();
 
@@ -231,9 +232,9 @@ class S3IntakeUploadTest {
         S3CrawlEvent missingEvent = S3CrawlEvent.newBuilder()
             .setEventId("test-missing-object-event")
             .setDatasourceId(DATASOURCE_ID)
-            .setBucket(MinioWithSampleDataTestResource.BUCKET)
+            .setBucket(MinioTestResource.BUCKET)
             .setKey("non-existent-file.txt")
-            .setSourceUrl("s3://" + MinioWithSampleDataTestResource.BUCKET + "/non-existent-file.txt")
+            .setSourceUrl("s3://" + MinioTestResource.BUCKET + "/non-existent-file.txt")
             .setSizeBytes(0)
             .build();
 

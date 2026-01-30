@@ -46,7 +46,7 @@ dependencies {
 
     // Core Quarkus dependencies
     implementation libs.quarkus.arc
-    implementation libs.quarkus.rest
+    implementation libs.quarkus.rest.jackson
     implementation 'io.quarkus:quarkus-grpc'
     implementation 'io.quarkus:quarkus-smallrye-health'
     implementation 'io.quarkus:quarkus-config-yaml'
@@ -73,21 +73,22 @@ dependencies {
     // Pipestream devservices extension - version managed by pipestream-bom
     implementation 'ai.pipestream:pipestream-quarkus-devservices'
     implementation 'ai.pipestream:pipestream-service-registration'
+    implementation 'ai.pipestream:pipestream-server'
 
     // Test dependencies
     testImplementation platform("ai.pipestream:pipestream-bom:${pipestreamBomVersion}")
-    testImplementation libs.quarkus.junit5
+    testImplementation libs.quarkus.junit5.mockito
     testImplementation 'io.quarkus:quarkus-test-vertx'
     testImplementation libs.rest.assured
     testImplementation libs.awaitility
     testImplementation libs.apicurio.registry.protobuf.serde
-    testImplementation(testFixtures("ai.pipestream:pipestream-test-support:${pipestreamBomVersion}"))
+    testImplementation("ai.pipestream:pipestream-test-support:${pipestreamBomVersion}")
     // Sample data for testing
-    testImplementation 'ai.pipestream:test-documents:0.2.3-SNAPSHOT'
+    testImplementation libs.pipestream.test.documents
     // Testcontainers - version managed by pipestream-bom
     testImplementation 'org.testcontainers:testcontainers'
     testImplementation 'org.testcontainers:testcontainers-minio:2.0.3'
-    testImplementation 'org.assertj:assertj-core:3.27.6'
+    testImplementation libs.assertj.core
 }
 
 
@@ -103,7 +104,6 @@ java {
 
 test {
     systemProperty "java.util.logging.manager", "org.jboss.logmanager.LogManager"
-    systemProperty "pipestream.wiremock.image", "docker.io/pipestreamai/pipestream-wiremock-server:0.1.30"
     environment "TESTCONTAINERS_RYUK_DISABLED", "false"
 
     // Increase memory for tests (especially integration tests that crawl large buckets)

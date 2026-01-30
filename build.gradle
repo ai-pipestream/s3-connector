@@ -85,9 +85,8 @@ dependencies {
     testImplementation("ai.pipestream:pipestream-test-support:${pipestreamBomVersion}")
     // Sample data for testing
     testImplementation libs.pipestream.test.documents
-    // Testcontainers - version managed by pipestream-bom
+    // Testcontainers - version managed by pipestream-bom (S3 via pipestream-test-support S3TestResource/SeaweedFS)
     testImplementation 'org.testcontainers:testcontainers'
-    testImplementation 'org.testcontainers:testcontainers-minio:2.0.3'
     testImplementation libs.assertj.core
 }
 

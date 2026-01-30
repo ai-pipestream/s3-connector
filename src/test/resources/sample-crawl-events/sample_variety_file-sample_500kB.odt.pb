@@ -1,2 +1,2 @@
 
- ef1cda44712fd75ecb8cd38894d1d575õ†ÇË¥ê‡¹sample-docs-crawler"test-bucket*$sample_variety/file-sample_500kB.odt8®›%B""3dcf05a851b9b35b36d074a5d3fae0cf"Jó†ÇË€¶åR5s3://test-bucket/sample_variety/file-sample_500kB.odt
+ 00af4e6cb0316a24e32e3842004f3c7e­·òËâÒ«¬sample-docs-crawler"test-bucket*$sample_variety/file-sample_500kB.odt8®›%B""3dcf05a851b9b35b36d074a5d3fae0cf"Jª·òËR5s3://test-bucket/sample_variety/file-sample_500kB.odt

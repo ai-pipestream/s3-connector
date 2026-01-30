@@ -58,7 +58,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @QuarkusTest
 @TestProfile(EndToEndIntegrationTest.E2ETestProfile.class)
-@QuarkusTestResource(ai.pipestream.test.support.MinioWithSampleDataTestResource.class)
+@QuarkusTestResource(ai.pipestream.test.support.S3WithSampleDataTestResource.class)
 @QuarkusTestResource(ConnectorIntakeWireMockTestResource.class)
 class EndToEndIntegrationTest {
 
@@ -120,19 +120,19 @@ class EndToEndIntegrationTest {
     }
 
     private static String s3Endpoint() {
-        String endpoint = ai.pipestream.test.support.MinioTestResource.getSharedEndpoint();
+        String endpoint = ai.pipestream.test.support.S3TestResource.getSharedEndpoint();
         if (endpoint == null) {
-            throw new IllegalStateException("S3 endpoint not set by MinioTestResource");
+            throw new IllegalStateException("S3 endpoint not set by S3TestResource");
         }
         return endpoint;
     }
 
     private static String accessKey() {
-        return ai.pipestream.test.support.MinioTestResource.ACCESS_KEY;
+        return ai.pipestream.test.support.S3TestResource.ACCESS_KEY;
     }
 
     private static String secretKey() {
-        return ai.pipestream.test.support.MinioTestResource.SECRET_KEY;
+        return ai.pipestream.test.support.S3TestResource.SECRET_KEY;
     }
 
     /**
@@ -144,9 +144,9 @@ class EndToEndIntegrationTest {
     void testEndToEndCrawlAndUpload(UniAsserter asserter) {
         String datasourceId = "test-e2e-datasource";
         String apiKey = "test-e2e-api-key";
-        String bucket = "test-bucket"; // From MinioTestResource
+        String bucket = "test-bucket"; // From S3TestResource
 
-        // Create S3 configuration for MinIO
+        // Create S3 configuration for SeaweedFS (S3-compatible)
         S3ConnectionConfig s3Config = S3ConnectionConfig.newBuilder()
             .setCredentialsType("static")
             .setAccessKeyId(accessKey())
@@ -232,7 +232,7 @@ class EndToEndIntegrationTest {
         String datasourceId = "test-object-crawl";
         String apiKey = "test-object-api-key";
         String bucket = "test-bucket";
-        // Use a file from test-documents jar (uploaded by MinioWithSampleDataTestResource)
+        // Use a file from test-documents jar (uploaded by S3WithSampleDataTestResource)
         String testKey = "sample_text/sample.txt";
 
         // Create S3 configuration

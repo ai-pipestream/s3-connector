@@ -1,2 +1,2 @@
 
- 9a843a0c41017ec5035c601d49364e7aõ†ÇË‘É»¶sample-docs-crawler"test-bucket*sample_geographical/kosovo.svg8ÒsB""f20e84a31466be3eb8fd316e2554e84f"Jò†ÇËÀêŽ¨R/s3://test-bucket/sample_geographical/kosovo.svg
+ 6388e5f9f53d3efd24f7a319b6c73039­·òË¢ˆ“ªsample-docs-crawler"test-bucket*sample_geographical/kosovo.svg8ÒsB""f20e84a31466be3eb8fd316e2554e84f"J«·òËR/s3://test-bucket/sample_geographical/kosovo.svg

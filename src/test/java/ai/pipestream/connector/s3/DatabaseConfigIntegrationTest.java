@@ -2,7 +2,7 @@ package ai.pipestream.connector.s3;
 
 import ai.pipestream.connector.s3.service.DatasourceConfigService;
 import ai.pipestream.connector.s3.v1.S3ConnectionConfig;
-import ai.pipestream.test.support.MinioTestResource;
+import ai.pipestream.test.support.S3TestResource;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.vertx.RunOnVertxContext;
@@ -32,7 +32,7 @@ import static org.assertj.core.api.Assertions.*;
  * @since 1.0.0
  */
 @QuarkusTest
-@QuarkusTestResource(MinioTestResource.class)
+@QuarkusTestResource(S3TestResource.class)
 class DatabaseConfigIntegrationTest {
 
     @Inject

@@ -5,8 +5,8 @@ import ai.pipestream.connector.s3.service.DatasourceConfigService;
 import ai.pipestream.connector.s3.v1.S3ConnectionConfig;
 import ai.pipestream.connector.s3.v1.S3CrawlEvent;
 import ai.pipestream.test.support.ConnectorIntakeWireMockTestResource;
-import ai.pipestream.test.support.MinioTestResource;
-import ai.pipestream.test.support.MinioWithSampleDataTestResource;
+import ai.pipestream.test.support.S3TestResource;
+import ai.pipestream.test.support.S3WithSampleDataTestResource;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.QuarkusTestProfile;
@@ -45,7 +45,7 @@ import static org.awaitility.Awaitility.await;
  * 1. Load saved S3CrawlEvent protobufs from src/test/resources/sample-crawl-events/
  * 2. Publish events to Kafka (s3-crawl-events-intake-upload-test topic - unique to this test)
  * 3. S3CrawlEventConsumer processes events:
- *    - Downloads objects from MinIO
+ *    - Downloads objects from S3 (SeaweedFS)
  *    - Uploads to WireMock intake service
  * 4. Verify processing completes without errors
  * </pre>
@@ -53,7 +53,7 @@ import static org.awaitility.Awaitility.await;
  * <h2>Test Data</h2>
  * <ul>
  *   <li>Uses saved protobuf events from S3CrawlEventCaptureTest</li>
- *   <li>MinIO contains sample-documents uploaded by MinioWithSampleDataTestResource</li>
+ *   <li>S3 (SeaweedFS) contains sample-documents uploaded by S3WithSampleDataTestResource</li>
  *   <li>WireMock mocks the connector-intake-service</li>
  * </ul>
  *
@@ -67,7 +67,7 @@ import static org.awaitility.Awaitility.await;
  */
 @QuarkusTest
 @TestProfile(S3IntakeUploadTest.IntakeUploadTestProfile.class)
-@QuarkusTestResource(MinioWithSampleDataTestResource.class)
+@QuarkusTestResource(S3WithSampleDataTestResource.class)
 @QuarkusTestResource(ConnectorIntakeWireMockTestResource.class)
 class S3IntakeUploadTest {
 
@@ -121,41 +121,41 @@ class S3IntakeUploadTest {
         // Register datasource configuration
         S3ConnectionConfig s3Config = S3ConnectionConfig.newBuilder()
             .setCredentialsType("static")
-            .setAccessKeyId(MinioTestResource.ACCESS_KEY)
-            .setSecretAccessKey(MinioTestResource.SECRET_KEY)
+            .setAccessKeyId(S3TestResource.ACCESS_KEY)
+            .setSecretAccessKey(S3TestResource.SECRET_KEY)
             .setRegion("us-east-1")
-            .setEndpointOverride(MinioTestResource.getSharedEndpoint())
+            .setEndpointOverride(S3TestResource.getSharedEndpoint())
             .setPathStyleAccess(true)
             .build();
 
         asserter.execute(() ->
             datasourceConfigService.registerDatasourceConfig(DATASOURCE_ID, API_KEY, s3Config));
 
-        // Create fresh events for files we KNOW exist in MinIO (uploaded by MinioWithSampleDataTestResource)
+        // Create fresh events for files we KNOW exist in S3 (uploaded by S3WithSampleDataTestResource)
         // Instead of loading saved events which may reference different keys/buckets
         List<S3CrawlEvent> testEvents = java.util.Arrays.asList(
             S3CrawlEvent.newBuilder()
                 .setEventId("test-event-1")
                 .setDatasourceId(DATASOURCE_ID)
-                .setBucket(MinioTestResource.BUCKET)
+                .setBucket(S3TestResource.BUCKET)
                 .setKey("sample_audio/sample.mp3")
-                .setSourceUrl("s3://" + MinioTestResource.BUCKET + "/sample_audio/sample.mp3")
+                .setSourceUrl("s3://" + S3TestResource.BUCKET + "/sample_audio/sample.mp3")
                 .setSizeBytes(1000)
                 .build(),
             S3CrawlEvent.newBuilder()
                 .setEventId("test-event-2")
                 .setDatasourceId(DATASOURCE_ID)
-                .setBucket(MinioTestResource.BUCKET)
+                .setBucket(S3TestResource.BUCKET)
                 .setKey("sample_text/sample.txt")
-                .setSourceUrl("s3://" + MinioTestResource.BUCKET + "/sample_text/sample.txt")
+                .setSourceUrl("s3://" + S3TestResource.BUCKET + "/sample_text/sample.txt")
                 .setSizeBytes(500)
                 .build(),
             S3CrawlEvent.newBuilder()
                 .setEventId("test-event-3")
                 .setDatasourceId(DATASOURCE_ID)
-                .setBucket(MinioTestResource.BUCKET)
+                .setBucket(S3TestResource.BUCKET)
                 .setKey("sample_image/sample.png")
-                .setSourceUrl("s3://" + MinioTestResource.BUCKET + "/sample_image/sample.png")
+                .setSourceUrl("s3://" + S3TestResource.BUCKET + "/sample_image/sample.png")
                 .setSizeBytes(2000)
                 .build()
         );
@@ -218,10 +218,10 @@ class S3IntakeUploadTest {
         // Register datasource configuration
         S3ConnectionConfig s3Config = S3ConnectionConfig.newBuilder()
             .setCredentialsType("static")
-            .setAccessKeyId(MinioTestResource.ACCESS_KEY)
-            .setSecretAccessKey(MinioTestResource.SECRET_KEY)
+            .setAccessKeyId(S3TestResource.ACCESS_KEY)
+            .setSecretAccessKey(S3TestResource.SECRET_KEY)
             .setRegion("us-east-1")
-            .setEndpointOverride(MinioTestResource.getSharedEndpoint())
+            .setEndpointOverride(S3TestResource.getSharedEndpoint())
             .setPathStyleAccess(true)
             .build();
 
@@ -232,9 +232,9 @@ class S3IntakeUploadTest {
         S3CrawlEvent missingEvent = S3CrawlEvent.newBuilder()
             .setEventId("test-missing-object-event")
             .setDatasourceId(DATASOURCE_ID)
-            .setBucket(MinioTestResource.BUCKET)
+            .setBucket(S3TestResource.BUCKET)
             .setKey("non-existent-file.txt")
-            .setSourceUrl("s3://" + MinioTestResource.BUCKET + "/non-existent-file.txt")
+            .setSourceUrl("s3://" + S3TestResource.BUCKET + "/non-existent-file.txt")
             .setSizeBytes(0)
             .build();
 

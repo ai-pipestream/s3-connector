@@ -1,2 +1,2 @@
 
- e341b586af7f005554c2880c12f71b35õ†ÇËŒó¯¹sample-docs-crawler"test-bucket*sample_variety/readme.txt8cB""c152a69efecf7e4abfc190be690318f5"Jó†ÇË€ËÚªR*s3://test-bucket/sample_variety/readme.txt
+ 6962a02e05a7abb15aab4457e86518e8­·òËóÆÐ¬sample-docs-crawler"test-bucket*sample_variety/readme.txt8cB""c152a69efecf7e4abfc190be690318f5"Jª·òËR*s3://test-bucket/sample_variety/readme.txt

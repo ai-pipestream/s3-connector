@@ -4,8 +4,8 @@ import ai.pipestream.connector.s3.service.S3CrawlService;
 import ai.pipestream.connector.s3.service.DatasourceConfigService;
 import ai.pipestream.connector.s3.v1.S3ConnectionConfig;
 import ai.pipestream.connector.s3.v1.S3CrawlEvent;
-import ai.pipestream.test.support.MinioTestResource;
-import ai.pipestream.test.support.MinioWithSampleDataTestResource;
+import ai.pipestream.test.support.S3TestResource;
+import ai.pipestream.test.support.S3WithSampleDataTestResource;
 import ai.pipestream.test.support.kafka.IsolatedKafkaTopicsProfile;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
@@ -43,13 +43,13 @@ import static org.junit.jupiter.api.Assertions.*;
  * This test performs two key functions:
  * </p>
  * <ol>
- *   <li>Crawls the entire MinIO bucket populated with test-documents</li>
+ *   <li>Crawls the entire S3 (SeaweedFS) bucket populated with test-documents</li>
  *   <li>Captures all emitted S3CrawlEvent protobufs and saves them to src/test/resources/</li>
  * </ol>
  *
  * <h2>Test Flow</h2>
  * <pre>
- * 1. MinioWithSampleDataTestResource uploads ~100+ files from test-documents jar
+ * 1. S3WithSampleDataTestResource uploads ~100+ files from test-documents jar
  * 2. Test crawls the bucket and emits S3CrawlEvents to Kafka
  * 3. Test consumes events from Kafka
  * 4. Saves each event as .pb file to src/test/resources/sample-crawl-events/
@@ -72,7 +72,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @QuarkusTest
 @TestProfile(S3CrawlEventCaptureTest.CaptureTestProfile.class)
-@QuarkusTestResource(MinioWithSampleDataTestResource.class)
+@QuarkusTestResource(S3WithSampleDataTestResource.class)
 class S3CrawlEventCaptureTest {
 
     public static class CaptureTestProfile extends IsolatedKafkaTopicsProfile {
@@ -102,15 +102,15 @@ class S3CrawlEventCaptureTest {
     void testCrawlAllSampleDocumentsAndCaptureEvents(UniAsserter asserter) throws Exception {
         String datasourceId = "sample-docs-crawler";
         String apiKey = "test-api-key";
-        String bucket = MinioTestResource.BUCKET;
+        String bucket = S3TestResource.BUCKET;
 
-        // Create S3 configuration for MinIO
+        // Create S3 configuration for SeaweedFS (S3-compatible)
         S3ConnectionConfig s3Config = S3ConnectionConfig.newBuilder()
             .setCredentialsType("static")
-            .setAccessKeyId(MinioTestResource.ACCESS_KEY)
-            .setSecretAccessKey(MinioTestResource.SECRET_KEY)
+            .setAccessKeyId(S3TestResource.ACCESS_KEY)
+            .setSecretAccessKey(S3TestResource.SECRET_KEY)
             .setRegion("us-east-1")
-            .setEndpointOverride(MinioTestResource.getSharedEndpoint())
+            .setEndpointOverride(S3TestResource.getSharedEndpoint())
             .setPathStyleAccess(true)
             .build();
 

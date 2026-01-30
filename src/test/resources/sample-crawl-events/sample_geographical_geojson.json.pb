@@ -1,2 +1,2 @@
 
- 4ca65aa8ceb4c588741f2cee37842116õ†ÇËð‰²¶sample-docs-crawler"test-bucket* sample_geographical/geojson.json8¡B""8c153392de2d0605c657b14ee3fc0013"Jò†ÇË€Âé£R1s3://test-bucket/sample_geographical/geojson.json
+ ba6890dba527d7cb8d13a4424d653ec7­·òËïŸŽªsample-docs-crawler"test-bucket* sample_geographical/geojson.json8¡B""8c153392de2d0605c657b14ee3fc0013"J«·òËR1s3://test-bucket/sample_geographical/geojson.json

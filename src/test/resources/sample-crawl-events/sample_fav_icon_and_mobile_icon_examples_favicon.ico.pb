@@ -1,2 +1,2 @@
 
- 342e1d7343288749d6f76450cb9b8793õ†ÇËÓ˜¶sample-docs-crawler"test-bucket*4sample_fav_icon_and_mobile_icon_examples/favicon.ico8şB""aa1889a90676e4e8a372a74ff147b1d3"Jò†ÇË€…æREs3://test-bucket/sample_fav_icon_and_mobile_icon_examples/favicon.ico
+ 0e7a363eae80e24eae164ba848370b50­·òË–Åù©sample-docs-crawler"test-bucket*4sample_fav_icon_and_mobile_icon_examples/favicon.ico8şB""aa1889a90676e4e8a372a74ff147b1d3"J«·òËREs3://test-bucket/sample_fav_icon_and_mobile_icon_examples/favicon.ico

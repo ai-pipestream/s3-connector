@@ -11,20 +11,15 @@ import io.quarkus.test.vertx.UniAsserter;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.junit.jupiter.api.Test;
-import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Basic integration test for S3 crawl service with SeaweedFS (S3-compatible).
+ * Basic integration test for S3 crawl service with LocalStack (S3-compatible).
  * <p>
  * This test verifies that the {@link S3CrawlService} can successfully crawl
  * an S3 bucket, create crawl events, and publish them to Kafka. It tests
@@ -34,8 +29,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * <h2>Test Setup</h2>
  * <p>
- * Uses {@link S3TestResource} to provide a local SeaweedFS (S3-compatible) instance with
- * test data and credentials.
+ * Uses {@link S3TestResource} to automatically start LocalStack (uses Quarkus Dev Services if available).
  * </p>
  *
  * <h2>Test Coverage</h2>
@@ -64,42 +58,45 @@ class S3CrawlServiceBasicTest {
     void testS3ConnectionAndBasicCrawl(UniAsserter asserter) {
         String datasourceId = "test-datasource-1";
         String apiKey = "test-api-key";
-        String bucket = S3TestResource.BUCKET;
+        String bucket = S3TestResource.BUCKET;  // Use bucket created by S3TestResource
         String testKey = "test-file.txt";
         String testContent = "Hello, S3!";
-        // Get endpoint from S3TestResource static field
+
+        // Get S3TestResource endpoint and credentials
         String s3Endpoint = S3TestResource.getSharedEndpoint();
-        assertNotNull(s3Endpoint, "S3 endpoint should be set by S3TestResource");
         String accessKey = S3TestResource.ACCESS_KEY;
         String secretKey = S3TestResource.SECRET_KEY;
 
-        // Create S3 (SeaweedFS) connection config
+        assertNotNull(s3Endpoint, "S3 endpoint should be set by S3TestResource");
+
+        // Create S3 connection config for the datasource using S3TestResource settings
         S3ConnectionConfig s3Config = S3ConnectionConfig.newBuilder()
             .setCredentialsType("static")
             .setAccessKeyId(accessKey)
             .setSecretAccessKey(secretKey)
             .setRegion("us-east-1")
-            .setEndpointOverride(s3Endpoint)  // From QuarkusTestResource properties
-            .setPathStyleAccess(true)  // SeaweedFS requires path-style access
+            .setEndpointOverride(s3Endpoint)
+            .setPathStyleAccess(true)  // LocalStack requires path-style access
             .build();
 
-        // Register datasource config with S3 connection details
+        // Register datasource config - this will make the app create an S3 client for this datasource
         asserter.execute(() -> datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, s3Config));
 
-        // Upload a test file to S3
+        // Upload a test file using a client configured with S3TestResource settings
         asserter.execute(() -> {
-            assertNotNull(s3Endpoint, "S3 endpoint should be set by QuarkusTestResource");
+            software.amazon.awssdk.auth.credentials.AwsBasicCredentials credentials =
+                software.amazon.awssdk.auth.credentials.AwsBasicCredentials.create(accessKey, secretKey);
 
-            AwsBasicCredentials credentials = AwsBasicCredentials.create(accessKey, secretKey);
-
-            try (S3Client s3 = S3Client.builder()
-                    .credentialsProvider(StaticCredentialsProvider.create(credentials))
-                    .region(Region.of("us-east-1"))
-                    .endpointOverride(URI.create(s3Endpoint))
-                    .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build())
+            try (S3Client testClient = S3Client.builder()
+                    .credentialsProvider(software.amazon.awssdk.auth.credentials.StaticCredentialsProvider.create(credentials))
+                    .region(software.amazon.awssdk.regions.Region.of("us-east-1"))
+                    .endpointOverride(java.net.URI.create(s3Endpoint))
+                    .serviceConfiguration(software.amazon.awssdk.services.s3.S3Configuration.builder()
+                        .pathStyleAccessEnabled(true).build())
                     .build()) {
-                
-                s3.putObject(PutObjectRequest.builder()
+
+                // Upload test file to S3TestResource's bucket
+                testClient.putObject(PutObjectRequest.builder()
                         .bucket(bucket)
                         .key(testKey)
                         .build(),
@@ -107,7 +104,7 @@ class S3CrawlServiceBasicTest {
             }
         });
 
-        // Test that crawl service can list and process the object
+        // Test that crawl service can list and process the object using the datasource's dynamically created client
         asserter.assertThat(() -> crawlService.crawlBucket(datasourceId, bucket, null),
             result -> {
                 // If we get here without exception, the crawl completed successfully

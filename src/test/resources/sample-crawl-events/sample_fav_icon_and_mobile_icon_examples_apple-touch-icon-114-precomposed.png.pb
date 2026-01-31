@@ -1,2 +1,2 @@
 
- 8a6444ad3f2091021b6ad1d9be96878b­·òËšöÞ©sample-docs-crawler"test-bucket*Msample_fav_icon_and_mobile_icon_examples/apple-touch-icon-114-precomposed.png8›/B""e47d43fba984bac3939bfd108d28661f"J«·òËR^s3://test-bucket/sample_fav_icon_and_mobile_icon_examples/apple-touch-icon-114-precomposed.png
+ 747974c2647d4adf26adffa46ffc4727½®ùË½É½Bsample-docs-crawler"test-bucket*Msample_fav_icon_and_mobile_icon_examples/apple-touch-icon-114-precomposed.png8›/B""e47d43fba984bac3939bfd108d28661f"J»®ùËR^s3://test-bucket/sample_fav_icon_and_mobile_icon_examples/apple-touch-icon-114-precomposed.png

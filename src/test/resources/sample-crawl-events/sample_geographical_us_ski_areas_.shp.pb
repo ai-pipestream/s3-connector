@@ -1,2 +1,2 @@
 
- eb0cee15252aa709c3f71b5682af9d5d­·òËÞëªªsample-docs-crawler"test-bucket*%sample_geographical/us_ski_areas_.shp8´–B""8a8c5d62ab4eb023f677cdb744aae272"J«·òËR6s3://test-bucket/sample_geographical/us_ski_areas_.shp
+ 1d6282e6728629a80ef11eb5d82daba0½®ùË‡¾¯Csample-docs-crawler"test-bucket*%sample_geographical/us_ski_areas_.shp8´–B""8a8c5d62ab4eb023f677cdb744aae272"Jº®ùËR6s3://test-bucket/sample_geographical/us_ski_areas_.shp

@@ -1,2 +1,2 @@
 
- 7d87ec91c4d1afc50c480ff7916f51e0­·òËá¦¾ªsample-docs-crawler"test-bucket*sample_image/progressive.jpg8ÔÞB""4856704a3db3322858eadf97dd48b6a1"J«·òËR-s3://test-bucket/sample_image/progressive.jpg
+ ef79bfcc88e34ec483bbcea425905d16½®ùËª·ÈCsample-docs-crawler"test-bucket*sample_image/progressive.jpg8ÔÞB""4856704a3db3322858eadf97dd48b6a1"Jº®ùËR-s3://test-bucket/sample_image/progressive.jpg

@@ -59,6 +59,8 @@ dependencies {
     implementation 'software.amazon.awssdk:s3'
     // HTTP client implementation for AWS SDK async client (Netty)
     implementation libs.aws.sdk.netty.nio
+    // HTTP client for sync S3 client (required for dev services and sync operations)
+    implementation 'software.amazon.awssdk:url-connection-client'
     
     // Kafka dependencies
     implementation 'io.quarkus:quarkus-messaging-kafka'
@@ -85,8 +87,10 @@ dependencies {
     testImplementation("ai.pipestream:pipestream-test-support:${pipestreamBomVersion}")
     // Sample data for testing
     testImplementation libs.pipestream.test.documents
-    // Testcontainers - version managed by pipestream-bom (S3 via pipestream-test-support S3TestResource/SeaweedFS)
+    // Testcontainers - version managed by pipestream-bom
     testImplementation 'org.testcontainers:testcontainers'
+    // LocalStack for S3 Dev Services
+    testImplementation 'org.testcontainers:testcontainers-localstack:2.0.3'
     testImplementation libs.assertj.core
 }
 
@@ -104,6 +108,7 @@ java {
 test {
     systemProperty "java.util.logging.manager", "org.jboss.logmanager.LogManager"
     environment "TESTCONTAINERS_RYUK_DISABLED", "false"
+    maxParallelForks = 1
 
     // Increase memory for tests (especially integration tests that crawl large buckets)
     maxHeapSize = "4g"

@@ -44,7 +44,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * </p>
  * <ol>
  *   <li>Crawls the entire S3 (SeaweedFS) bucket populated with test-documents</li>
- *   <li>Captures all emitted S3CrawlEvent protobufs and saves them to src/test/resources/</li>
+ *   <li>Captures all emitted S3CrawlEvent protobufs and optionally saves them to src/test/resources/</li>
  * </ol>
  *
  * <h2>Test Flow</h2>
@@ -52,13 +52,19 @@ import static org.junit.jupiter.api.Assertions.*;
  * 1. S3WithSampleDataTestResource uploads ~100+ files from test-documents jar
  * 2. Test crawls the bucket and emits S3CrawlEvents to Kafka
  * 3. Test consumes events from Kafka
- * 4. Saves each event as .pb file to src/test/resources/sample-crawl-events/
+ * 4. If test.capture.save-events=true, saves each event as .pb file to src/test/resources/sample-crawl-events/
  * 5. These saved events can be reused in consumer/publisher tests
  * </pre>
  *
+ * <h2>Configuration</h2>
+ * <p>
+ * Set <code>test.capture.save-events=true</code> to save events to disk.
+ * By default, events are captured but not saved to avoid modifying source files on every test run.
+ * </p>
+ *
  * <h2>Output</h2>
  * <p>
- * Creates files like:
+ * When saving is enabled, creates files like:
  * </p>
  * <pre>
  * src/test/resources/sample-crawl-events/
@@ -88,13 +94,16 @@ class S3CrawlEventCaptureTest {
     @ConfigProperty(name = "mp.messaging.outgoing.s3-crawl-events-out.topic")
     String kafkaTopic;
 
+    @ConfigProperty(name = "test.capture.save-events", defaultValue = "false")
+    boolean saveEvents;
+
     /**
-     * Crawls all sample documents and saves crawl events to src/test/resources.
+     * Crawls all sample documents and optionally saves crawl events to src/test/resources.
      * <p>
      * This test:
      * 1. Crawls the entire bucket with all test-documents
      * 2. Consumes S3CrawlEvents from Kafka
-     * 3. Saves each event as a protobuf file for reuse
+     * 3. If test.capture.save-events=true, saves each event as a protobuf file for reuse
      * </p>
      */
     @Test
@@ -138,10 +147,14 @@ class S3CrawlEventCaptureTest {
                 System.out.printf("Total events captured: %d%n", capturedEvents.size());
 
                 if (!capturedEvents.isEmpty()) {
-                    // Save events to src/test/resources
-                    Path outputDir = saveEventsToResources(capturedEvents);
-                    System.out.printf("Saved %d event files to: %s%n",
-                        capturedEvents.size(), outputDir);
+                    // Save events to src/test/resources (only if enabled)
+                    if (saveEvents) {
+                        Path outputDir = saveEventsToResources(capturedEvents);
+                        System.out.printf("Saved %d event files to: %s%n",
+                            capturedEvents.size(), outputDir);
+                    } else {
+                        System.out.println("Event saving disabled (set test.capture.save-events=true to enable)");
+                    }
 
                     // Show sample of what was captured
                     System.out.println("\nSample captured events:");

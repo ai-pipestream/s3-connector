@@ -1,2 +1,2 @@
 
- 22d6f9824f7fec64948ee390f249aae7­·òËØ—Š¬sample-docs-crawler"test-bucket*#sample_variety/Rich Text Format.rtf8§êB""2b250754376dcd21306e0891c826a74e"Jª·òËR4s3://test-bucket/sample_variety/Rich Text Format.rtf
+ 2b982333b262f666d87793445825f5c5½®ùË¦ÜÿDsample-docs-crawler"test-bucket*#sample_variety/Rich Text Format.rtf8§êB""2b250754376dcd21306e0891c826a74e"Jº®ùËR4s3://test-bucket/sample_variety/Rich Text Format.rtf

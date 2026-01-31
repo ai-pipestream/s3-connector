@@ -1,2 +1,2 @@
 
- 93477a948064b09b59e69e7cfd0760ec­·òË¡üÁ¬sample-docs-crawler"test-bucket*)sample_variety/file_example_PPT_500kB.ppt8€” B""b1474954701b41b5d0c01851ee34c93b"Jª·òËR:s3://test-bucket/sample_variety/file_example_PPT_500kB.ppt
+ 2ba487448d23ba4e5ca533f489070973½®ùË¨„²Esample-docs-crawler"test-bucket*)sample_variety/file_example_PPT_500kB.ppt8€” B""b1474954701b41b5d0c01851ee34c93b"Jº®ùËR:s3://test-bucket/sample_variety/file_example_PPT_500kB.ppt

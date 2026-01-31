@@ -1,2 +1,2 @@
 
- 3208d0301add777b018ae5fd6d8c0349­·òË¶Áœªsample-docs-crawler"test-bucket*!sample_geographical/placemark.gml8ÞB""5f7cc489e14db1089a189cbae9d07326"J«·òËR2s3://test-bucket/sample_geographical/placemark.gml
+ 4c66d45bf75d7974d4a5e25e4b349cb3½®ùË—ÚžCsample-docs-crawler"test-bucket*!sample_geographical/placemark.gml8ÞB""5f7cc489e14db1089a189cbae9d07326"Jº®ùËR2s3://test-bucket/sample_geographical/placemark.gml

@@ -1,2 +1,2 @@
 
- 81dd6c196db6dde5d0b3f5f9a71c30a4­·òË™ð—ªsample-docs-crawler"test-bucket*!sample_geographical/placemark.gfs8¨B""66cc3ad3c4c5d6a57885ee59817d3964"J«·òËR2s3://test-bucket/sample_geographical/placemark.gfs
+ 2c07948123b586013671747b4837e252½®ùËôÙ–Csample-docs-crawler"test-bucket*!sample_geographical/placemark.gfs8¨B""66cc3ad3c4c5d6a57885ee59817d3964"Jº®ùËR2s3://test-bucket/sample_geographical/placemark.gfs

@@ -38,17 +38,13 @@ pipestreamProtos {
 
 dependencies {
     implementation 'io.quarkus:quarkus-container-image-docker'
-    // Import pipeline BOM to align all managed versions
-    // Version defined in gradle.properties as single source of truth
+    // Import pipestream BOM to align all managed versions (includes quarkus-amazon-services-bom)
     implementation platform("ai.pipestream:pipestream-bom:${pipestreamBomVersion}")
-    // Import Amazon Services BOM for S3
-    implementation platform("io.quarkus.platform:quarkus-amazon-services-bom:${quarkusPlatformVersion}")
 
     // Core Quarkus dependencies
     implementation libs.quarkus.arc
     implementation libs.quarkus.rest.jackson
     implementation 'io.quarkus:quarkus-grpc'
-    implementation 'io.quarkus:quarkus-smallrye-health'
     implementation 'io.quarkus:quarkus-config-yaml'
     implementation 'io.quarkus:quarkus-hibernate-reactive-panache'
     implementation 'io.quarkus:quarkus-reactive-pg-client'

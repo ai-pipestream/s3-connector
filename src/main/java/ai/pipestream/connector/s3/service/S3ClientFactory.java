@@ -128,7 +128,7 @@ public class S3ClientFactory {
      * @return Uni containing configured S3AsyncClient
      */
     private Uni<S3AsyncClient> createClientAsync(S3ConnectionConfig config, String clientName) {
-        LOG.infof("Creating S3AsyncClient for %s", clientName);
+        LOG.infof("DEBUG: Starting S3AsyncClient creation for %s", clientName);
 
         // Region (default to us-east-1 if not specified)
         final String region = config.getRegion() != null && !config.getRegion().isBlank()
@@ -155,7 +155,7 @@ public class S3ClientFactory {
                     .build());
 
                 S3AsyncClient client = builder.build();
-                LOG.infof("Created S3AsyncClient for %s (region=%s)", clientName, region);
+                LOG.infof("DEBUG: Successfully created S3AsyncClient for %s", clientName);
                 return client;
             });
     }

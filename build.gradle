@@ -66,6 +66,7 @@ dependencies {
 
     // HTTP Client for multipart uploads to connector-intake-service
     implementation 'io.quarkus:quarkus-rest-client'
+    implementation 'io.quarkus:quarkus-flyway'
 
     // Pipestream platform libraries (managed via BOM)
     // Pipestream devservices extension - version managed by pipestream-bom

@@ -178,6 +178,10 @@ class S3CrawlEventCaptureTest {
                     System.out.printf("\nEvents from %d different directories%n", uniqueDirs);
                     assertTrue(uniqueDirs > 5,
                         "Should have events from multiple directories (sample_text, sample_image, etc.)");
+
+                    assertTrue(capturedEvents.stream()
+                        .allMatch(event -> event.getSourceUrl().contains("crawl_source=initial")),
+                        "Initial crawl should emit crawl_source=initial marker in sourceUrl");
                 } else {
                     System.out.println("WARNING: No events captured from Kafka");
                     System.out.println("This might be expected if Kafka is not running or events haven't been produced yet");

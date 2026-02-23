@@ -3,6 +3,7 @@ package ai.pipestream.connector.s3.events;
 import ai.pipestream.apicurio.registry.protobuf.ProtobufChannel;
 import ai.pipestream.apicurio.registry.protobuf.ProtobufEmitter;
 import ai.pipestream.connector.s3.v1.S3CrawlEvent;
+import ai.pipestream.connector.s3.state.CrawlSource;
 import com.google.protobuf.Timestamp;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -97,6 +98,26 @@ public class S3CrawlEventPublisher {
      */
     public S3CrawlEvent buildEvent(String datasourceId, String bucket, String key,
                                    String versionId, long sizeBytes, String etag, Instant lastModified) {
+        return buildEvent(datasourceId, bucket, key, versionId, sizeBytes, etag, lastModified, CrawlSource.INCREMENTAL);
+    }
+
+    /**
+     * Builds an {@link S3CrawlEvent} protobuf message from S3 object metadata with source classification.
+     *
+     * @param datasourceId the unique identifier for the datasource
+     * @param bucket the S3 bucket name containing the object
+     * @param key the S3 object key (path within the bucket)
+     * @param versionId the S3 version ID for versioned objects, may be null
+     * @param sizeBytes the size of the object in bytes
+     * @param etag the S3 ETag for the object
+     * @param lastModified the last modified timestamp of the object
+     * @param crawlSource the crawl source classification
+     * @return a fully constructed {@link S3CrawlEvent} protobuf message
+     * @since 1.0.0
+     */
+    public S3CrawlEvent buildEvent(String datasourceId, String bucket, String key,
+                                   String versionId, long sizeBytes, String etag, Instant lastModified,
+                                   CrawlSource crawlSource) {
         Instant now = Instant.now();
         String eventId = computeEventId(datasourceId, bucket, key, versionId, now);
         
@@ -105,6 +126,9 @@ public class S3CrawlEventPublisher {
         if (versionId != null && !versionId.isBlank()) {
             sourceUrl += "?versionId=" + versionId;
         }
+
+        CrawlSource resolvedCrawlSource = crawlSource == null ? CrawlSource.INCREMENTAL : crawlSource;
+        sourceUrl = appendSourceMarker(sourceUrl, "crawl_source", resolvedCrawlSource.name().toLowerCase());
 
         return S3CrawlEvent.newBuilder()
             .setEventId(eventId)
@@ -118,6 +142,17 @@ public class S3CrawlEventPublisher {
             .setLastModified(toProtoTimestamp(lastModified))
             .setSourceUrl(sourceUrl)
             .build();
+    }
+
+    private static String appendSourceMarker(String sourceUrl, String key, String value) {
+        if (sourceUrl == null || key == null || key.isBlank() || value == null || value.isBlank()) {
+            return sourceUrl;
+        }
+
+        if (sourceUrl.contains("?")) {
+            return sourceUrl + "&" + key + "=" + value;
+        }
+        return sourceUrl + "?" + key + "=" + value;
     }
 
     /**

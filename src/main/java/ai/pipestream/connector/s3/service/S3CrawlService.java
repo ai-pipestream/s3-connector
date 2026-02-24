@@ -95,6 +95,15 @@ public class S3CrawlService {
         return crawlBucket(datasourceId, bucket, prefix, CrawlSource.INITIAL);
     }
 
+    /**
+     * Crawls an S3 bucket and emits crawl events for discovered objects.
+     *
+     * @param datasourceId unique identifier for the datasource
+     * @param bucket       S3 bucket name
+     * @param prefix       optional prefix filter (may be {@code null})
+     * @param crawlSource  whether this is an initial or incremental crawl
+     * @return a Uni that completes when all objects have been processed
+     */
     public Uni<Void> crawlBucket(String datasourceId, String bucket, String prefix, CrawlSource crawlSource) {
         LOG.infof("Starting S3 crawl: datasourceId=%s, bucket=%s, prefix=%s", datasourceId, bucket, prefix);
 
@@ -232,6 +241,15 @@ public class S3CrawlService {
         return crawlObject(datasourceId, bucket, key, CrawlSource.INCREMENTAL);
     }
 
+    /**
+     * Crawls a single S3 object and emits a crawl event for it.
+     *
+     * @param datasourceId unique identifier for the datasource
+     * @param bucket       S3 bucket name
+     * @param key          S3 object key
+     * @param crawlSource  whether this is an initial or incremental crawl
+     * @return a Uni that completes when the object has been processed
+     */
     public Uni<Void> crawlObject(String datasourceId, String bucket, String key, CrawlSource crawlSource) {
         LOG.infof("Crawling single S3 object: datasourceId=%s, bucket=%s, key=%s", datasourceId, bucket, key);
 

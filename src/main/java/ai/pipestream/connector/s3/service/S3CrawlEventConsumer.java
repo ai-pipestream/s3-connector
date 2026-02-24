@@ -14,11 +14,16 @@ import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 
+/**
+ * Consumes S3 crawl events from Kafka, downloads the referenced objects from S3,
+ * and streams them to the connector-intake-service for processing.
+ */
 @ApplicationScoped
 public class S3CrawlEventConsumer {
     private static final String DEBUG_SESSION_ID = "a0041d";
     private static final String DEBUG_RUN_ID = "pre-fix";
 
+    /** Creates a new S3CrawlEventConsumer (CDI managed). */
     public S3CrawlEventConsumer() {
     }
 
@@ -33,6 +38,12 @@ public class S3CrawlEventConsumer {
     @Inject
     DatasourceConfigService datasourceConfigService;
 
+    /**
+     * Processes an incoming S3 crawl event by downloading the object and uploading it to intake.
+     *
+     * @param event the S3 crawl event describing which object to process
+     * @return a Uni that completes when the object has been uploaded
+     */
     @Incoming("s3-crawl-events-in")
     public Uni<Void> processCrawlEvent(S3CrawlEvent event) {
         long startMs = System.currentTimeMillis();

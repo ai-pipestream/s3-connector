@@ -23,6 +23,10 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
+/**
+ * HTTP client for uploading S3 objects to the connector-intake-service.
+ * Streams object bytes using chunked transfer with back-pressure support.
+ */
 @ApplicationScoped
 public class ConnectorIntakeClient {
 
@@ -36,12 +40,26 @@ public class ConnectorIntakeClient {
     @Inject
     ChunkSizeCalculator chunkSizeCalculator;
 
+    /** Creates a new ConnectorIntakeClient (CDI managed). */
     public ConnectorIntakeClient() {
         this.httpClient = HttpClient.newBuilder()
             .version(HttpClient.Version.HTTP_1_1)
             .build();
     }
 
+    /**
+     * Uploads an S3 object to the connector-intake-service as a raw binary stream.
+     *
+     * @param datasourceId    datasource identifier for the upload
+     * @param apiKey          API key for authentication
+     * @param sourceUrl       source URL of the S3 object
+     * @param bucket          S3 bucket name
+     * @param key             S3 object key
+     * @param contentType     MIME content type of the object
+     * @param sizeBytes       size of the object in bytes
+     * @param bodyInputStream input stream of the object body
+     * @return the intake service response
+     */
     public Uni<IntakeUploadResponse> uploadRaw(
         String datasourceId,
         String apiKey,
@@ -215,5 +233,12 @@ public class ConnectorIntakeClient {
             }
         }
 
+    /**
+     * Response from the connector-intake-service upload endpoint.
+     *
+     * @param statusCode  HTTP status code
+     * @param contentType response content type
+     * @param body        response body
+     */
     public record IntakeUploadResponse(int statusCode, String contentType, String body) {}
 }

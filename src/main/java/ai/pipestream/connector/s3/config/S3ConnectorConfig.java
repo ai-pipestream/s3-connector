@@ -5,7 +5,6 @@ import io.quarkus.runtime.annotations.ConfigRoot;
 import io.smallrye.config.ConfigMapping;
 import io.smallrye.config.WithDefault;
 
-import java.time.Duration;
 
 /**
  * Configuration interface for the S3 connector service.
@@ -20,7 +19,7 @@ import java.time.Duration;
  *   <li>{@code s3.connector.crawl-mode} - Operation mode (default: "initial-crawl")</li>
  *   <li>{@code s3.connector.initial-crawl.*} - Initial crawl settings</li>
  *   <li>{@code s3.connector.event-driven.*} - Event-driven crawl settings</li>
- *   <li>{@code s3.connector.intake.*} - Connector intake service settings</li>
+ *   <li>{@code quarkus.rest-client.connector-intake.*} - Connector intake service settings</li>
  * </ul>
  *
  * @since 1.0.0
@@ -62,16 +61,6 @@ public interface S3ConnectorConfig {
      * @return configuration for event-driven crawl operations
      */
     EventDrivenConfig eventDriven();
-
-    /**
-     * Gets the connector intake service configuration.
-     * <p>
-     * Defines connection settings for uploading crawled objects to the
-     * connector-intake-service.
-     *
-     * @return configuration for the intake service connection
-     */
-    IntakeConfig intake();
 
     /**
      * Configuration for initial crawl operations.
@@ -132,45 +121,4 @@ public interface S3ConnectorConfig {
         boolean enabled();
     }
 
-    /**
-     * Configuration for the connector intake service connection.
-     * <p>
-     * Defines HTTP client settings for uploading crawled S3 objects to the
-     * connector-intake-service for further processing.
-     */
-    interface IntakeConfig {
-
-        /**
-         * Gets the base URL of the connector intake service.
-         * <p>
-         * This should be the full base URL including protocol and port,
-         * e.g., "https://intake.example.com" or "http://localhost:38103".
-         *
-         * @return the intake service base URL
-         */
-        @WithDefault("http://localhost:38103")
-        String baseUrl();
-
-        /**
-         * Gets the URL path for raw object uploads.
-         * <p>
-         * This path is appended to the base URL to form the complete
-         * upload endpoint URL.
-         *
-         * @return the raw upload path, defaults to "/uploads/raw"
-         */
-        @WithDefault("/uploads/raw")
-        String rawPath();
-
-        /**
-         * Gets the request timeout for intake service uploads.
-         * <p>
-         * Specifies how long the HTTP client will wait for the intake
-         * service to respond to upload requests before timing out.
-         *
-         * @return the request timeout duration, defaults to 5 minutes
-         */
-        @WithDefault("PT5M")
-        Duration requestTimeout();
-    }
 }

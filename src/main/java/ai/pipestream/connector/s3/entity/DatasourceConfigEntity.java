@@ -40,7 +40,7 @@ public class DatasourceConfigEntity extends PanacheEntityBase {
      * to the intake service.
      * </p>
      */
-    @Column(name = "api_key", nullable = false)
+    @Column(name = "api_key", columnDefinition = "TEXT", nullable = false)
     public String apiKey;
 
     /**

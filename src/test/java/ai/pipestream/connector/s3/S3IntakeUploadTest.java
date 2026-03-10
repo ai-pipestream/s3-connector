@@ -15,7 +15,14 @@ import io.quarkus.test.vertx.RunOnVertxContext;
 import io.quarkus.test.vertx.UniAsserter;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3Configuration;
 
 import java.io.IOException;
 import java.net.URI;
@@ -103,6 +110,50 @@ class S3IntakeUploadTest {
     private static final String DATASOURCE_ID = "test-intake-datasource";
     private static final String API_KEY = "test-intake-api-key";
     private static final HttpClient HTTP_CLIENT = HttpClient.newHttpClient();
+
+    @BeforeEach
+    void waitForS3Data() {
+        List<String> keys = List.of(
+                "sample_audio/sample.mp3",
+                "sample_text/sample.txt",
+                "sample_image/sample.png");
+
+        try (S3Client s3 = S3Client.builder()
+                .credentialsProvider(StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create(S3TestResource.ACCESS_KEY, S3TestResource.SECRET_KEY)))
+                .region(Region.of("us-east-1"))
+                .endpointOverride(URI.create(S3TestResource.getSharedEndpoint()))
+                .serviceConfiguration(S3Configuration.builder().pathStyleAccessEnabled(true).build())
+                .build()) {
+
+            await()
+                    .atMost(Duration.ofSeconds(30))
+                    .until(() -> keys.stream().allMatch(key -> {
+                        try {
+                            s3.headObject(r -> r.bucket(S3TestResource.BUCKET).key(key));
+                            return true;
+                        } catch (Exception e) {
+                            return false;
+                        }
+                    }));
+        }
+    }
+
+    @BeforeEach
+    void stubUploadEndpoint() throws Exception {
+        String stub = """
+                {
+                  "request": { "method": "POST", "url": "/uploads/raw" },
+                  "response": { "status": 200, "body": "{\\"status\\":\\"accepted\\"}", "headers": { "Content-Type": "application/json" } }
+                }
+                """;
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("http://" + wiremockHost + ":" + wiremockPort + "/__admin/mappings"))
+                .POST(HttpRequest.BodyPublishers.ofString(stub))
+                .header("Content-Type", "application/json")
+                .build();
+        HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+    }
 
     /**
      * Tests the full pipeline from loading saved events to intake upload.

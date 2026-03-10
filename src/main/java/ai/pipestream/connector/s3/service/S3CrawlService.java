@@ -108,90 +108,56 @@ public class S3CrawlService {
         LOG.infof("Starting S3 crawl: datasourceId=%s, bucket=%s, prefix=%s", datasourceId, bucket, prefix);
 
         AtomicInteger totalObjects = new AtomicInteger(0);
-        // Fetch config once (in Vert.x context) and pass it through
+
         return datasourceConfigService.getDatasourceConfig(datasourceId)
-            .flatMap(datasourceConfig ->
-                crawlBucketInternal(datasourceId, datasourceConfig, bucket, prefix, null, crawlSource, totalObjects)
-                    .invoke(() -> LOG.infof("Completed S3 crawl: datasourceId=%s, bucket=%s", datasourceId, bucket))
-                    .replaceWithVoid()
-            );
+            .flatMap(datasourceConfig -> clientFactory.getOrCreateClient(datasourceId, datasourceConfig.s3Config())
+                .flatMap(client -> {
+                    String configuredPrefix = config.initialCrawl().prefix().orElse(null);
+                    String actualPrefix = (prefix != null && !prefix.isBlank()) ? prefix : configuredPrefix;
+                    int maxKeys = config.initialCrawl().maxKeysPerRequest();
+
+                    ListObjectsV2Request firstRequest = ListObjectsV2Request.builder()
+                        .bucket(bucket)
+                        .maxKeys(maxKeys)
+                        .prefix(actualPrefix)
+                        .build();
+
+                    return crawlPage(client, firstRequest, datasourceId, bucket, crawlSource, totalObjects)
+                        .invoke(() -> LOG.infof("Completed S3 crawl: emitted %d events for bucket=%s, prefix=%s",
+                            totalObjects.get(), bucket, actualPrefix));
+                }));
     }
 
-    private Uni<Void> crawlBucketInternal(String datasourceId,
-                                          DatasourceConfigService.DatasourceConfig datasourceConfig,
-                                          String bucket,
-                                          String prefix,
-                                          String continuationToken,
-                                          CrawlSource crawlSource,
-                                          AtomicInteger totalObjects) {
-        return
-                // Get datasource-specific S3 client
-                clientFactory.getOrCreateClient(datasourceId, datasourceConfig.s3Config())
-                    .flatMap(client -> {
-                                String configuredPrefix = config.initialCrawl().prefix().orElse(null);
-                        String actualPrefix = (prefix != null && !prefix.isBlank()) ? prefix : configuredPrefix;
-                        int maxKeys = config.initialCrawl().maxKeysPerRequest();
+    /**
+     * Fetches one page of S3 objects, publishes all events for that page concurrently,
+     * then recursively processes the next page if one exists. Fully reactive — no blocking.
+     */
+    private Uni<Void> crawlPage(S3AsyncClient client, ListObjectsV2Request request,
+                                String datasourceId, String bucket,
+                                CrawlSource crawlSource, AtomicInteger totalObjects) {
+        return Uni.createFrom().completionStage(client.listObjectsV2(request))
+            .flatMap(page -> {
+                // Publish all events in this page as a concurrent batch
+                List<Uni<Void>> pageEvents = page.contents().stream()
+                    .map(s3Object -> {
+                        totalObjects.incrementAndGet();
+                        return eventPublisher.publish(createCrawlEvent(datasourceId, bucket, s3Object, crawlSource));
+                    })
+                    .collect(Collectors.toList());
 
-                        ListObjectsV2Request.Builder requestBuilder = ListObjectsV2Request.builder()
-                            .bucket(bucket)
-                            .maxKeys(maxKeys);
+                Uni<Void> publishPage = pageEvents.isEmpty()
+                        ? Uni.createFrom().voidItem()
+                        : Uni.combine().all().unis(pageEvents).discardItems();
 
-                        if (actualPrefix != null && !actualPrefix.isBlank()) {
-                            requestBuilder.prefix(actualPrefix);
-                        }
-
-                        if (continuationToken != null) {
-                            requestBuilder.continuationToken(continuationToken);
-                        }
-
-                        ListObjectsV2Request request = requestBuilder.build();
-
-                        return Uni.createFrom().completionStage(client.listObjectsV2(request))
-                            .flatMap(response -> handleListResponse(datasourceId, datasourceConfig, bucket, actualPrefix, response, crawlSource, totalObjects));
-                    });
-    }
-
-    private Uni<Void> handleListResponse(String datasourceId,
-                                         DatasourceConfigService.DatasourceConfig datasourceConfig,
-                                         String bucket,
-                                         String actualPrefix,
-                                         ListObjectsV2Response response,
-                                         CrawlSource crawlSource,
-                                         AtomicInteger totalObjects) {
-        List<S3Object> contents = response.contents();
-        
-        if (contents.isEmpty()) {
-            String nextToken = response.nextContinuationToken();
-            if (nextToken == null) {
-                return Uni.createFrom().voidItem()
-                    .invoke(() -> LOG.infof("Emitted %d crawl events for bucket=%s, prefix=%s",
-                        totalObjects.get(), bucket, actualPrefix));
-            }
-            return crawlBucketInternal(datasourceId, datasourceConfig, bucket, actualPrefix, nextToken, crawlSource, totalObjects);
-        }
-
-        // Convert each S3Object to a Uni<Void> for publishing
-        List<Uni<Void>> publishUnis = contents.stream()
-            .map(s3Object -> {
-                S3CrawlEvent event = createCrawlEvent(datasourceId, bucket, s3Object, crawlSource);
-                totalObjects.incrementAndGet();
-                return eventPublisher.publish(event);
-            })
-            .collect(Collectors.toList());
-
-        // Combine all publish operations into a single Uni
-        Uni<Void> sendAll = Uni.combine().all().unis(publishUnis).discardItems();
-
-        String nextToken = response.nextContinuationToken();
-        if (nextToken == null) {
-            return sendAll
-                .invoke(() -> LOG.infof("Emitted %d crawl events for bucket=%s, prefix=%s",
-                    totalObjects.get(), bucket, actualPrefix))
-                .replaceWithVoid();
-        }
-
-        return sendAll
-            .flatMap(ignored -> crawlBucketInternal(datasourceId, datasourceConfig, bucket, actualPrefix, nextToken, crawlSource, totalObjects));
+                // After the page is fully published, move to the next page if there is one
+                if (Boolean.TRUE.equals(page.isTruncated())) {
+                    ListObjectsV2Request nextRequest = request.toBuilder()
+                        .continuationToken(page.nextContinuationToken())
+                        .build();
+                    return publishPage.flatMap(ignored -> crawlPage(client, nextRequest, datasourceId, bucket, crawlSource, totalObjects));
+                }
+                return publishPage;
+            });
     }
 
     private S3CrawlEvent createCrawlEvent(String datasourceId, String bucket, S3Object s3Object, CrawlSource crawlSource) {

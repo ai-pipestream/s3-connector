@@ -20,6 +20,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.eclipse.microprofile.config.ConfigProvider;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.eclipse.microprofile.reactive.messaging.Message;
 import org.junit.jupiter.api.Test;
@@ -204,9 +205,14 @@ class S3CrawlEventCaptureTest {
     private List<S3CrawlEvent> consumeEventsFromKafka() {
         List<S3CrawlEvent> events = new ArrayList<>();
 
+        // Get actual Kafka bootstrap servers from configuration (DevServices provided)
+        String bootstrapServers = ConfigProvider.getConfig()
+            .getOptionalValue("kafka.bootstrap.servers", String.class)
+            .orElse("localhost:9094");
+
         // Create Kafka consumer
         Properties props = new Properties();
-        props.put("bootstrap.servers", "localhost:9094"); // Kafka DevServices
+        props.put("bootstrap.servers", bootstrapServers);
         props.put("group.id", "test-event-capture-" + System.currentTimeMillis());
         props.put("key.deserializer", StringDeserializer.class.getName());
         props.put("value.deserializer", ByteArrayDeserializer.class.getName());
@@ -215,7 +221,7 @@ class S3CrawlEventCaptureTest {
 
         try (KafkaConsumer<String, byte[]> consumer = new KafkaConsumer<>(props)) {
             consumer.subscribe(List.of(kafkaTopic));
-            System.out.printf("Consuming from Kafka topic: %s%n", kafkaTopic);
+            System.out.printf("Consuming from Kafka topic: %s (at %s)%n", kafkaTopic, bootstrapServers);
 
             // Poll for events (with timeout)
             ConsumerRecords<String, byte[]> records = consumer.poll(Duration.ofSeconds(5));

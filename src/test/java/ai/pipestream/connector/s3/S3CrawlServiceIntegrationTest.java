@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 import io.quarkus.test.common.QuarkusTestResource;
+import org.junit.jupiter.api.condition.DisabledIfEnvironmentVariable;
 
 /**
  * Integration test for crawling public S3 buckets (e.g., NOAA GSOD).
@@ -24,6 +25,7 @@ import io.quarkus.test.common.QuarkusTestResource;
  */
 @QuarkusTest
 @QuarkusTestResource(AwsS3AnonymousTestResource.class)
+@DisabledIfEnvironmentVariable(named = "GITHUB_ACTIONS", matches = "true")
 class S3CrawlServiceIntegrationTest {
 
     @Inject

@@ -22,6 +22,7 @@ import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
+import org.jboss.logging.Logger;
 import org.eclipse.microprofile.reactive.messaging.Message;
 import org.junit.jupiter.api.Test;
 
@@ -34,7 +35,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.atomic.AtomicReference;
 
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -81,6 +84,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @TestProfile(S3CrawlEventCaptureTest.CaptureTestProfile.class)
 @QuarkusTestResource(S3WithSampleDataTestResource.class)
 class S3CrawlEventCaptureTest {
+
+    private static final Logger LOG = Logger.getLogger(S3CrawlEventCaptureTest.class);
 
     public static class CaptureTestProfile extends IsolatedKafkaTopicsProfile {
         // Inherits the unique topic generation
@@ -130,42 +135,45 @@ class S3CrawlEventCaptureTest {
         // Start crawling entire bucket (this will emit events to Kafka)
         asserter.execute(() -> crawlService.crawlBucket(datasourceId, bucket, null));
 
-        // Give Kafka time to process events
+        // Now consume and save the events using Awaitility (non-blocking wait for Kafka events)
         asserter.execute(() -> {
+            AtomicReference<List<S3CrawlEvent>> capturedEventsRef = new AtomicReference<>(new ArrayList<>());
+
+            await()
+                .atMost(Duration.ofSeconds(20))
+                .pollInterval(Duration.ofSeconds(1))
+                .untilAsserted(() -> {
+                    List<S3CrawlEvent> captured = consumeEventsFromKafka();
+                    LOG.infof("  Current captured events: %d", captured.size());
+                    capturedEventsRef.set(captured);
+                    // We expect a significant number of events from the sample documents (usually 100+)
+                    assertTrue(captured.size() > 50, "Should have captured a significant number of events from sample docs");
+                });
+
+            List<S3CrawlEvent> capturedEvents = capturedEventsRef.get();
+            LOG.info("=== Captured S3 Crawl Events ===");
+            LOG.infof("Total events captured: %d", capturedEvents.size());
+
             try {
-                Thread.sleep(3000); // Wait 3 seconds for events to be produced
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        });
-
-        // Now consume and save the events
-        asserter.execute(() -> {
-            try {
-                List<S3CrawlEvent> capturedEvents = consumeEventsFromKafka();
-
-                System.out.println("=== Captured S3 Crawl Events ===");
-                System.out.printf("Total events captured: %d%n", capturedEvents.size());
-
                 if (!capturedEvents.isEmpty()) {
                     // Save events to src/test/resources (only if enabled)
                     if (saveEvents) {
                         Path outputDir = saveEventsToResources(capturedEvents);
-                        System.out.printf("Saved %d event files to: %s%n",
+                        LOG.infof("Saved %d event files to: %s",
                             capturedEvents.size(), outputDir);
                     } else {
-                        System.out.println("Event saving disabled (set test.capture.save-events=true to enable)");
+                        LOG.info("Event saving disabled (set test.capture.save-events=true to enable)");
                     }
 
                     // Show sample of what was captured
-                    System.out.println("\nSample captured events:");
+                    LOG.info("\nSample captured events:");
                     capturedEvents.stream()
                         .limit(10)
-                        .forEach(event -> System.out.printf("  - %s/%s (%d bytes)%n",
+                        .forEach(event -> LOG.infof("  - %s/%s (%d bytes)",
                             event.getBucket(), event.getKey(), event.getSizeBytes()));
 
                     if (capturedEvents.size() > 10) {
-                        System.out.printf("  ... and %d more events%n",
+                        LOG.infof("  ... and %d more events",
                             capturedEvents.size() - 10);
                     }
 
@@ -176,7 +184,7 @@ class S3CrawlEventCaptureTest {
                         .distinct()
                         .count();
 
-                    System.out.printf("\nEvents from %d different directories%n", uniqueDirs);
+                    LOG.infof("\nEvents from %d different directories", uniqueDirs);
                     assertTrue(uniqueDirs > 5,
                         "Should have events from multiple directories (sample_text, sample_image, etc.)");
 
@@ -184,13 +192,10 @@ class S3CrawlEventCaptureTest {
                         .allMatch(event -> event.getSourceUrl().contains("crawl_source=initial")),
                         "Initial crawl should emit crawl_source=initial marker in sourceUrl");
                 } else {
-                    System.out.println("WARNING: No events captured from Kafka");
-                    System.out.println("This might be expected if Kafka is not running or events haven't been produced yet");
+                    LOG.info("WARNING: No events captured from Kafka");
                 }
             } catch (Exception e) {
-                System.err.println("Error capturing events: " + e.getMessage());
-                e.printStackTrace();
-                // Don't fail the test - this is informational
+                LOG.errorf("Error processing captured events: %s", e.getMessage());
             }
         });
     }
@@ -221,12 +226,12 @@ class S3CrawlEventCaptureTest {
 
         try (KafkaConsumer<String, byte[]> consumer = new KafkaConsumer<>(props)) {
             consumer.subscribe(List.of(kafkaTopic));
-            System.out.printf("Consuming from Kafka topic: %s (at %s)%n", kafkaTopic, bootstrapServers);
+            LOG.infof("Consuming from Kafka topic: %s (at %s)", kafkaTopic, bootstrapServers);
 
             // Poll for events (with timeout)
             ConsumerRecords<String, byte[]> records = consumer.poll(Duration.ofSeconds(5));
 
-            System.out.printf("Polled %d records from Kafka%n", records.count());
+            LOG.infof("Polled %d records from Kafka", records.count());
 
             for (ConsumerRecord<String, byte[]> record : records) {
                 try {
@@ -234,11 +239,11 @@ class S3CrawlEventCaptureTest {
 
                     // Debug: print first 10 bytes to understand encoding
                     if (events.isEmpty()) {
-                        System.out.print("First message bytes (hex): ");
+                        StringBuilder hex = new StringBuilder();
                         for (int i = 0; i < Math.min(10, rawBytes.length); i++) {
-                            System.out.printf("%02X ", rawBytes[i]);
+                            hex.append(String.format("%02X ", rawBytes[i]));
                         }
-                        System.out.printf("(total length: %d)%n", rawBytes.length);
+                        LOG.infof("First message bytes (hex): %s (total length: %d)", hex.toString(), rawBytes.length);
                     }
 
                     // Apicurio protobuf serializer uses:
@@ -270,14 +275,12 @@ class S3CrawlEventCaptureTest {
                     }
                 } catch (Exception e) {
                     if (events.isEmpty()) {
-                        System.err.printf("Failed to parse event: %s%n", e.getMessage());
-                        e.printStackTrace();
+                        LOG.errorf("Failed to parse event: %s", e.getMessage());
                     }
                 }
             }
         } catch (Exception e) {
-            System.err.printf("Error consuming from Kafka: %s%n", e.getMessage());
-            e.printStackTrace();
+            LOG.errorf("Error consuming from Kafka: %s", e.getMessage());
         }
 
         return events;
@@ -310,7 +313,7 @@ class S3CrawlEventCaptureTest {
                     try {
                         Files.delete(p);
                     } catch (IOException e) {
-                        System.err.printf("Failed to delete old event file: %s%n", p);
+                        LOG.errorf("Failed to delete old event file: %s", p);
                     }
                 });
         }

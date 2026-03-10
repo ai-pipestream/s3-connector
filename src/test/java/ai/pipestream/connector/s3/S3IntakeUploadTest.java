@@ -15,6 +15,7 @@ import io.quarkus.test.vertx.RunOnVertxContext;
 import io.quarkus.test.vertx.UniAsserter;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
+import org.jboss.logging.Logger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -77,6 +78,8 @@ import static org.awaitility.Awaitility.await;
 @QuarkusTestResource(S3WithSampleDataTestResource.class)
 @QuarkusTestResource(ConnectorIntakeWireMockTestResource.class)
 class S3IntakeUploadTest {
+
+    private static final Logger LOG = Logger.getLogger(S3IntakeUploadTest.class);
 
     /**
      * Test profile that configures a unique Kafka topic for this test.
@@ -213,46 +216,36 @@ class S3IntakeUploadTest {
         final int expectedEventCount = testEvents.size();
 
         asserter.execute(() -> {
-            System.out.printf("%n=== S3 Intake Upload Pipeline Test ===%n");
-            System.out.printf("Testing with %d fresh S3CrawlEvents%n", expectedEventCount);
+            LOG.info("\n=== S3 Intake Upload Pipeline Test ===");
+            LOG.infof("Testing with %d fresh S3CrawlEvents", expectedEventCount);
         });
 
         // Publish events to Kafka
         for (S3CrawlEvent event : testEvents) {
             asserter.execute(() -> {
-                System.out.printf("Publishing event: %s%n", event.getSourceUrl());
+                LOG.infof("Publishing event: %s", event.getSourceUrl());
                 return eventPublisher.publish(event);
             });
         }
 
         // Wait for consumer to process events and upload to WireMock
         asserter.execute(() -> {
-            System.out.printf("Waiting for %d events to be processed and uploaded...%n", expectedEventCount);
+            LOG.infof("Waiting for %d events to be processed and uploaded...", expectedEventCount);
 
-            // Simple sleep first to debug
-            try {
-                for (int i = 0; i < 30; i++) { // 15 seconds max
-                    Thread.sleep(500);
+            // Use Awaitility for non-blocking wait (it will poll until condition is met or timeout)
+            await()
+                .atMost(Duration.ofSeconds(20))
+                .pollInterval(Duration.ofMillis(500))
+                .untilAsserted(() -> {
                     int uploadCount = getWireMockUploadCount();
-                    if (i % 4 == 0) { // Print every 2 seconds
-                        System.out.printf("  [%ds] Current upload count: %d / %d%n",
-                            (i * 500) / 1000, uploadCount, expectedEventCount);
-                    }
-                    if (uploadCount >= expectedEventCount) {
-                        System.out.printf("✓ All %d events successfully processed and uploaded!%n", expectedEventCount);
-                        break;
-                    }
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+                    LOG.infof("  Current upload count: %d / %d", uploadCount, expectedEventCount);
+                    assertThat(uploadCount)
+                        .as("WireMock should receive all uploaded events")
+                        .isGreaterThanOrEqualTo(expectedEventCount);
+                });
 
-            int finalCount = getWireMockUploadCount();
-            assertThat(finalCount)
-                .as("WireMock should receive all uploaded events")
-                .isGreaterThanOrEqualTo(expectedEventCount);
-
-            System.out.println("=== Test Complete ===" + System.lineSeparator());
+            LOG.info("✓ All events successfully processed and uploaded!");
+            LOG.info("=== Test Complete ===");
         });
     }
 
@@ -291,13 +284,13 @@ class S3IntakeUploadTest {
 
         // Publish the event - should not crash the consumer
         asserter.execute(() -> {
-            System.out.println("Publishing event for non-existent object (testing error handling)");
+            LOG.info("Publishing event for non-existent object (testing error handling)");
             return eventPublisher.publish(missingEvent);
         });
 
         // Wait and verify NO upload was made for the missing object
         asserter.execute(() -> {
-            System.out.println("Waiting to verify missing object is not uploaded...");
+            LOG.info("Waiting to verify missing object is not uploaded...");
 
             // Wait a bit to ensure consumer had time to process (and fail)
             await()
@@ -311,7 +304,7 @@ class S3IntakeUploadTest {
                         .isEqualTo(0);
                 });
 
-            System.out.println("✓ Error handling verified: Consumer handled missing object gracefully");
+            LOG.info("✓ Error handling verified: Consumer handled missing object gracefully");
         });
     }
 
@@ -333,8 +326,8 @@ class S3IntakeUploadTest {
             .resolve("src/test/resources/sample-crawl-events");
 
         if (!Files.exists(resourcesDir)) {
-            System.err.printf("WARNING: Sample events directory not found: %s%n", resourcesDir);
-            System.err.println("Run S3CrawlEventCaptureTest first to generate sample events");
+            LOG.warnf("WARNING: Sample events directory not found: %s", resourcesDir);
+            LOG.info("Run S3CrawlEventCaptureTest first to generate sample events");
             return events;
         }
 
@@ -346,10 +339,10 @@ class S3IntakeUploadTest {
                         byte[] eventBytes = Files.readAllBytes(eventFile);
                         S3CrawlEvent event = S3CrawlEvent.parseFrom(eventBytes);
                         events.add(event);
-                        System.out.printf("Loaded event: %s (%d bytes)%n",
+                        LOG.infof("Loaded event: %s (%d bytes)",
                             event.getSourceUrl(), event.getSizeBytes());
                     } catch (IOException e) {
-                        System.err.printf("Failed to load event file: %s - %s%n",
+                        LOG.errorf("Failed to load event file: %s - %s",
                             eventFile.getFileName(), e.getMessage());
                     }
                 });
@@ -391,7 +384,7 @@ class S3IntakeUploadTest {
             }
             return 0;
         } catch (Exception e) {
-            System.err.printf("Failed to query WireMock admin API: %s%n", e.getMessage());
+            LOG.errorf("Failed to query WireMock admin API: %s", e.getMessage());
             return 0;
         }
     }
@@ -429,7 +422,7 @@ class S3IntakeUploadTest {
             }
             return 0;
         } catch (Exception e) {
-            System.err.printf("Failed to query WireMock admin API: %s%n", e.getMessage());
+            LOG.errorf("Failed to query WireMock admin API: %s", e.getMessage());
             return 0;
         }
     }

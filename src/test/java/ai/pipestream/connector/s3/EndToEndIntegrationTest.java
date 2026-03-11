@@ -6,7 +6,6 @@ import ai.pipestream.connector.s3.v1.S3ConnectionConfig;
 import ai.pipestream.connector.s3.v1.StartCrawlRequest;
 import ai.pipestream.connector.s3.v1.StartCrawlResponse;
 import ai.pipestream.connector.s3.v1.MutinyS3ConnectorControlServiceGrpc;
-import ai.pipestream.test.support.ConnectorIntakeWireMockTestResource;
 import ai.pipestream.test.support.kafka.IsolatedKafkaTopicsProfile;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
@@ -59,7 +58,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @QuarkusTest
 @TestProfile(EndToEndIntegrationTest.E2ETestProfile.class)
 @QuarkusTestResource(ai.pipestream.test.support.S3WithSampleDataTestResource.class)
-@QuarkusTestResource(ConnectorIntakeWireMockTestResource.class)
+@QuarkusTestResource(S3ConnectorWireMockTestResource.class)
 class EndToEndIntegrationTest {
 
     public static class E2ETestProfile extends IsolatedKafkaTopicsProfile {

@@ -4,7 +4,6 @@ import ai.pipestream.connector.s3.events.S3CrawlEventPublisher;
 import ai.pipestream.connector.s3.service.DatasourceConfigService;
 import ai.pipestream.connector.s3.v1.S3ConnectionConfig;
 import ai.pipestream.connector.s3.v1.S3CrawlEvent;
-import ai.pipestream.test.support.ConnectorIntakeWireMockTestResource;
 import ai.pipestream.test.support.S3TestResource;
 import ai.pipestream.test.support.S3WithSampleDataTestResource;
 import io.quarkus.test.common.QuarkusTestResource;
@@ -76,7 +75,7 @@ import static org.awaitility.Awaitility.await;
 @QuarkusTest
 @TestProfile(S3IntakeUploadTest.IntakeUploadTestProfile.class)
 @QuarkusTestResource(S3WithSampleDataTestResource.class)
-@QuarkusTestResource(ConnectorIntakeWireMockTestResource.class)
+@QuarkusTestResource(S3ConnectorWireMockTestResource.class)
 class S3IntakeUploadTest {
 
     private static final Logger LOG = Logger.getLogger(S3IntakeUploadTest.class);
@@ -92,8 +91,10 @@ class S3IntakeUploadTest {
         @Override
         public java.util.Map<String, String> getConfigOverrides() {
             return java.util.Map.of(
+                "mp.messaging.incoming.s3-crawl-events-in.enabled", "true",
                 "mp.messaging.outgoing.s3-crawl-events-out.topic", UNIQUE_TOPIC,
-                "mp.messaging.incoming.s3-crawl-events-in.topic", UNIQUE_TOPIC
+                "mp.messaging.incoming.s3-crawl-events-in.topic", UNIQUE_TOPIC,
+                "mp.messaging.incoming.s3-crawl-events-in.failure-strategy", "fail"
             );
         }
     }

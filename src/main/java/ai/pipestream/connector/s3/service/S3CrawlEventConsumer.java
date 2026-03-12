@@ -82,6 +82,7 @@ public class S3CrawlEventConsumer {
                             );
                         })
                         .onItem().invoke(() -> logDebug("B", "S3CrawlEventConsumer#processCrawlEvent", "upload completed", datasourceId, sourceUrl, bucket, key, startMs, 0, "success"))
+                        .onFailure().retry().atMost(3)
                         .onFailure().invoke(error -> {
                             logDebug("C", "S3CrawlEventConsumer#processCrawlEvent", "processing failed", datasourceId, sourceUrl, bucket, key, startMs, 0, errorClass(error));
                             LOG.errorf(error, "Failed to process crawl event: datasourceId=%s, sourceUrl=%s",

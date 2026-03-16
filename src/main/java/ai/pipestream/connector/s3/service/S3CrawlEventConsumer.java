@@ -60,8 +60,17 @@ public class S3CrawlEventConsumer {
             event.getDatasourceId(), event.getSourceUrl());
 
         return datasourceConfigService.getDatasourceConfig(event.getDatasourceId())
+            .onFailure(IllegalStateException.class).recoverWithItem(err -> {
+                LOG.warnf("Skipping event for unregistered datasource %s (sourceUrl=%s) - datasource config not found, event will be acknowledged",
+                    datasourceId, sourceUrl);
+                return null;
+            })
             .emitOn(Infrastructure.getDefaultWorkerPool())
-            .flatMap(config -> clientFactory.getOrCreateClient(config.datasourceId(), config.s3Config())
+            .flatMap(config -> {
+                if (config == null) {
+                    return Uni.createFrom().voidItem();
+                }
+                return clientFactory.getOrCreateClient(config.datasourceId(), config.s3Config())
                 .flatMap(client -> {
                     // #region agent log
                     logDebug("A", "S3CrawlEventConsumer#downloadObject", "client ready", datasourceId, sourceUrl, bucket, key, startMs, -1, "client-ready");
@@ -89,8 +98,8 @@ public class S3CrawlEventConsumer {
                                 event.getDatasourceId(), event.getSourceUrl());
                         })
                         .replaceWithVoid();
-                })
-            );
+                });
+            });
     }
 
     private java.util.concurrent.CompletionStage<ResponseInputStream<GetObjectResponse>> downloadObject(S3AsyncClient client, S3CrawlEvent event) {

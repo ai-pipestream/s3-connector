@@ -224,11 +224,15 @@ class S3IntakeUploadTest {
         });
 
         asserter.execute(() -> {
+            // CI runners (4 cores, 16GB) need more time for 5 testcontainers + JVM to
+            // fully start. The sentinel proves the entire pipeline is warm (Kafka consumer
+            // joined → S3 download → WireMock upload) before we assert on real events.
             await()
-                .atMost(Duration.ofSeconds(30))
-                .pollInterval(Duration.ofMillis(250))
+                .atMost(Duration.ofSeconds(90))
+                .pollInterval(Duration.ofSeconds(1))
                 .untilAsserted(() -> {
                     int count = getWireMockUploadCount();
+                    LOG.infof("  Sentinel warmup: upload count = %d (waiting for >= 1)", count);
                     assertThat(count)
                         .as("Sentinel event should be processed before real test events")
                         .isGreaterThanOrEqualTo(1);

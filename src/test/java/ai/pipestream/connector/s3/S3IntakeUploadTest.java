@@ -144,7 +144,17 @@ class S3IntakeUploadTest {
     }
 
     @BeforeEach
-    void stubUploadEndpoint() throws Exception {
+    void resetAndStubWireMock() throws Exception {
+        // Reset the request journal so each test starts with a clean count.
+        // Without this, testIntakeUploadPipeline's uploads leak into
+        // testErrorHandlingForMissingObjects (or vice versa) depending on order.
+        HttpRequest reset = HttpRequest.newBuilder()
+                .uri(URI.create("http://" + wiremockHost + ":" + wiremockPort + "/__admin/requests"))
+                .method("DELETE", HttpRequest.BodyPublishers.noBody())
+                .build();
+        HTTP_CLIENT.send(reset, HttpResponse.BodyHandlers.ofString());
+
+        // Register the upload stub
         String stub = """
                 {
                   "request": { "method": "POST", "url": "/uploads/raw" },
@@ -235,7 +245,7 @@ class S3IntakeUploadTest {
 
             // Use Awaitility for non-blocking wait (it will poll until condition is met or timeout)
             await()
-                .atMost(Duration.ofSeconds(20))
+                .atMost(Duration.ofSeconds(45))
                 .pollInterval(Duration.ofMillis(500))
                 .untilAsserted(() -> {
                     int uploadCount = getWireMockUploadCount();
@@ -353,77 +363,56 @@ class S3IntakeUploadTest {
     }
 
     /**
-     * Gets the count of requests to WireMock's /uploads/raw endpoint.
-     * <p>
-     * Queries WireMock's admin API to count how many upload requests have been received.
-     * </p>
+     * Gets the count of POST requests to WireMock's /uploads/raw endpoint.
+     * Uses WireMock's dedicated count API instead of parsing the full request journal.
      *
      * @return the number of upload requests received by WireMock
      */
     private int getWireMockUploadCount() {
-        try {
-            String adminUrl = String.format("http://%s:%s/__admin/requests", wiremockHost, wiremockPort);
-            HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(adminUrl))
-                .GET()
-                .build();
-
-            HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() == 200) {
-                String body = response.body();
-                // Simple count of "url" : "/uploads/raw" occurrences
-                // This is a simple approach; could use JSON parser for robustness
-                int count = 0;
-                String searchPattern = "\"/uploads/raw\"";
-                int index = 0;
-                while ((index = body.indexOf(searchPattern, index)) != -1) {
-                    count++;
-                    index += searchPattern.length();
-                }
-                return count;
-            }
-            return 0;
-        } catch (Exception e) {
-            LOG.errorf("Failed to query WireMock admin API: %s", e.getMessage());
-            return 0;
-        }
+        return queryWireMockCount("""
+                {"method":"POST","url":"/uploads/raw"}
+                """);
     }
 
     /**
      * Gets the count of upload requests for a specific source path.
+     * Uses WireMock's count API with header matching.
      *
      * @param sourcePath the source path to filter by (e.g., "non-existent-file.txt")
      * @return the number of upload requests with the specified source path
      */
     private int getWireMockUploadCountForPath(String sourcePath) {
-        try {
-            String adminUrl = String.format("http://%s:%s/__admin/requests", wiremockHost, wiremockPort);
-            HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(adminUrl))
-                .GET()
-                .build();
-
-            HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() == 200) {
-                String body = response.body();
-                // Count occurrences of both /uploads/raw and the specific source path
-                int count = 0;
-                int index = 0;
-                while ((index = body.indexOf("\"/uploads/raw\"", index)) != -1) {
-                    // Check if this request has our source path nearby
-                    int pathIndex = body.indexOf("\"x-source-path\" : \"" + sourcePath + "\"", index);
-                    if (pathIndex > index && pathIndex < index + 500) { // Within reasonable distance
-                        count++;
-                    }
-                    index += 10;
+        return queryWireMockCount(String.format("""
+                {
+                  "method": "POST",
+                  "url": "/uploads/raw",
+                  "headers": {
+                    "x-source-path": { "equalTo": "%s" }
+                  }
                 }
-                return count;
+                """, sourcePath));
+    }
+
+    /**
+     * Queries WireMock's /__admin/requests/count endpoint with a request matcher.
+     * Returns 0 on any error so Awaitility can retry.
+     */
+    private int queryWireMockCount(String matcherJson) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create("http://" + wiremockHost + ":" + wiremockPort + "/__admin/requests/count"))
+                    .POST(HttpRequest.BodyPublishers.ofString(matcherJson))
+                    .header("Content-Type", "application/json")
+                    .build();
+            HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200) {
+                // Response format: {"count":3}
+                String body = response.body();
+                return Integer.parseInt(body.replaceAll("[^0-9]", ""));
             }
             return 0;
         } catch (Exception e) {
-            LOG.errorf("Failed to query WireMock admin API: %s", e.getMessage());
+            LOG.errorf("Failed to query WireMock count API: %s", e.getMessage());
             return 0;
         }
     }

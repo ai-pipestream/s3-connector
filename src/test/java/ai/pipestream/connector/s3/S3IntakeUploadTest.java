@@ -145,14 +145,7 @@ class S3IntakeUploadTest {
 
     @BeforeEach
     void resetAndStubWireMock() throws Exception {
-        // Reset the request journal so each test starts with a clean count.
-        // Without this, testIntakeUploadPipeline's uploads leak into
-        // testErrorHandlingForMissingObjects (or vice versa) depending on order.
-        HttpRequest reset = HttpRequest.newBuilder()
-                .uri(URI.create("http://" + wiremockHost + ":" + wiremockPort + "/__admin/requests"))
-                .method("DELETE", HttpRequest.BodyPublishers.noBody())
-                .build();
-        HTTP_CLIENT.send(reset, HttpResponse.BodyHandlers.ofString());
+        resetWireMockJournal();
 
         // Register the upload stub
         String stub = """
@@ -167,6 +160,21 @@ class S3IntakeUploadTest {
                 .header("Content-Type", "application/json")
                 .build();
         HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
+    /**
+     * Resets the WireMock request journal so upload counts start from zero.
+     */
+    private void resetWireMockJournal() {
+        try {
+            HttpRequest reset = HttpRequest.newBuilder()
+                    .uri(URI.create("http://" + wiremockHost + ":" + wiremockPort + "/__admin/requests"))
+                    .method("DELETE", HttpRequest.BodyPublishers.noBody())
+                    .build();
+            HTTP_CLIENT.send(reset, HttpResponse.BodyHandlers.ofString());
+        } catch (Exception e) {
+            LOG.warnf("Failed to reset WireMock journal: %s", e.getMessage());
+        }
     }
 
     /**
@@ -196,8 +204,41 @@ class S3IntakeUploadTest {
         asserter.execute(() ->
             datasourceConfigService.registerDatasourceConfig(DATASOURCE_ID, API_KEY, s3Config));
 
+        // Warm up the pipeline: publish a sentinel event and wait for it to be processed.
+        // This ensures the Kafka consumer group has joined and the full pipeline
+        // (Kafka → consumer → S3 download → WireMock upload) is ready before we
+        // publish the real test events. Without this, on CI the consumer group join
+        // can take longer than expected, causing the test to time out.
+        S3CrawlEvent sentinelEvent = S3CrawlEvent.newBuilder()
+                .setEventId("sentinel-warmup")
+                .setDatasourceId(DATASOURCE_ID)
+                .setBucket(S3TestResource.BUCKET)
+                .setKey("sample_text/sample.txt")
+                .setSourceUrl("s3://" + S3TestResource.BUCKET + "/sample_text/sample.txt")
+                .setSizeBytes(500)
+                .build();
+
+        asserter.execute(() -> {
+            LOG.info("Publishing sentinel event to warm up the pipeline...");
+            return eventPublisher.publish(sentinelEvent);
+        });
+
+        asserter.execute(() -> {
+            await()
+                .atMost(Duration.ofSeconds(30))
+                .pollInterval(Duration.ofMillis(250))
+                .untilAsserted(() -> {
+                    int count = getWireMockUploadCount();
+                    assertThat(count)
+                        .as("Sentinel event should be processed before real test events")
+                        .isGreaterThanOrEqualTo(1);
+                });
+            LOG.info("Pipeline warm — sentinel event processed, resetting WireMock journal");
+            // Reset the journal so the sentinel doesn't count toward the real test assertions
+            resetWireMockJournal();
+        });
+
         // Create fresh events for files we KNOW exist in S3 (uploaded by S3WithSampleDataTestResource)
-        // Instead of loading saved events which may reference different keys/buckets
         List<S3CrawlEvent> testEvents = java.util.Arrays.asList(
             S3CrawlEvent.newBuilder()
                 .setEventId("test-event-1")
@@ -245,8 +286,8 @@ class S3IntakeUploadTest {
 
             // Use Awaitility for non-blocking wait (it will poll until condition is met or timeout)
             await()
-                .atMost(Duration.ofSeconds(45))
-                .pollInterval(Duration.ofMillis(500))
+                .atMost(Duration.ofSeconds(10))
+                .pollInterval(Duration.ofMillis(250))
                 .untilAsserted(() -> {
                     int uploadCount = getWireMockUploadCount();
                     LOG.infof("  Current upload count: %d / %d", uploadCount, expectedEventCount);

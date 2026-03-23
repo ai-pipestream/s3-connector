@@ -12,6 +12,7 @@ import io.quarkus.test.junit.QuarkusTestProfile;
 import io.quarkus.test.junit.TestProfile;
 import io.quarkus.test.vertx.RunOnVertxContext;
 import io.quarkus.test.vertx.UniAsserter;
+import io.vertx.mutiny.core.Vertx;
 import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
@@ -104,6 +105,9 @@ class S3IntakeUploadTest {
 
     @Inject
     DatasourceConfigService datasourceConfigService;
+
+    @Inject
+    Vertx vertx;
 
     @ConfigProperty(name = "wiremock.host")
     String wiremockHost;
@@ -204,11 +208,7 @@ class S3IntakeUploadTest {
         asserter.execute(() ->
             datasourceConfigService.registerDatasourceConfig(DATASOURCE_ID, API_KEY, s3Config));
 
-        // Warm up the pipeline: publish a sentinel event and wait for it to be processed.
-        // This ensures the Kafka consumer group has joined and the full pipeline
-        // (Kafka → consumer → S3 download → WireMock upload) is ready before we
-        // publish the real test events. Without this, on CI the consumer group join
-        // can take longer than expected, causing the test to time out.
+        // One sentinel event so we only assert on real traffic after Kafka → S3 → WireMock works.
         S3CrawlEvent sentinelEvent = S3CrawlEvent.newBuilder()
                 .setEventId("sentinel-warmup")
                 .setDatasourceId(DATASOURCE_ID)
@@ -223,13 +223,12 @@ class S3IntakeUploadTest {
             return eventPublisher.publish(sentinelEvent);
         });
 
-        asserter.execute(() -> {
-            // CI runners (4 cores, 16GB) need more time for 5 testcontainers + JVM to
-            // fully start. The sentinel proves the entire pipeline is warm (Kafka consumer
-            // joined → S3 download → WireMock upload) before we assert on real events.
+        // Awaitility must not run on the Vert.x event loop: UniAsserter.execute(Runnable) runs there,
+        // and blocking the loop prevents Kafka / reactive messaging from delivering the sentinel.
+        asserter.execute(() -> vertx.executeBlocking(() -> {
             await()
-                .atMost(Duration.ofSeconds(90))
-                .pollInterval(Duration.ofSeconds(1))
+                .atMost(Duration.ofSeconds(30))
+                .pollInterval(Duration.ofMillis(250))
                 .untilAsserted(() -> {
                     int count = getWireMockUploadCount();
                     LOG.infof("  Sentinel warmup: upload count = %d (waiting for >= 1)", count);
@@ -238,9 +237,9 @@ class S3IntakeUploadTest {
                         .isGreaterThanOrEqualTo(1);
                 });
             LOG.info("Pipeline warm — sentinel event processed, resetting WireMock journal");
-            // Reset the journal so the sentinel doesn't count toward the real test assertions
             resetWireMockJournal();
-        });
+            return null;
+        }));
 
         // Create fresh events for files we KNOW exist in S3 (uploaded by S3WithSampleDataTestResource)
         List<S3CrawlEvent> testEvents = java.util.Arrays.asList(
@@ -284,11 +283,8 @@ class S3IntakeUploadTest {
             });
         }
 
-        // Wait for consumer to process events and upload to WireMock
-        asserter.execute(() -> {
+        asserter.execute(() -> vertx.executeBlocking(() -> {
             LOG.infof("Waiting for %d events to be processed and uploaded...", expectedEventCount);
-
-            // Use Awaitility for non-blocking wait (it will poll until condition is met or timeout)
             await()
                 .atMost(Duration.ofSeconds(10))
                 .pollInterval(Duration.ofMillis(250))
@@ -299,10 +295,10 @@ class S3IntakeUploadTest {
                         .as("WireMock should receive all uploaded events")
                         .isGreaterThanOrEqualTo(expectedEventCount);
                 });
-
             LOG.info("✓ All events successfully processed and uploaded!");
             LOG.info("=== Test Complete ===");
-        });
+            return null;
+        }));
     }
 
     /**

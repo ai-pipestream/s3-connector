@@ -25,3 +25,8 @@ bin
 tmp
 
 .claude
+
+# Quinoa / Vue UI
+src/main/webui/node_modules/
+src/main/webui/dist/
+.quinoa/

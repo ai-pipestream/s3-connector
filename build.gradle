@@ -37,6 +37,7 @@ pipestreamProtos {
 }
 
 dependencies {
+    implementation 'io.quarkiverse.quinoa:quarkus-quinoa:2.7.2'
     implementation 'io.quarkus:quarkus-container-image-docker'
     // Import pipestream BOM to align all managed versions (includes quarkus-amazon-services-bom)
     implementation platform("ai.pipestream:pipestream-bom:${pipestreamBomVersion}")
@@ -141,6 +142,7 @@ tasks.withType(Javadoc).configureEach { task ->
     include '**/ai/pipestream/connector/s3/config/**'
     include '**/ai/pipestream/connector/s3/client/**'
     include '**/ai/pipestream/connector/s3/events/**'
+    include '**/ai/pipestream/connector/s3/rest/**'
 }
 
 // Publishing configuration

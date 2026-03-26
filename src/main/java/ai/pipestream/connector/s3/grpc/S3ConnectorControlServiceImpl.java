@@ -2,22 +2,31 @@ package ai.pipestream.connector.s3.grpc;
 
 import ai.pipestream.connector.s3.service.S3CrawlService;
 import ai.pipestream.connector.s3.service.DatasourceConfigService;
+import ai.pipestream.connector.s3.service.S3ClientFactory;
 import ai.pipestream.connector.s3.service.S3TestCrawlService;
 import ai.pipestream.connector.s3.v1.S3ConnectionConfig;
+import ai.pipestream.connector.s3.v1.S3FileLocation;
 import ai.pipestream.connector.s3.v1.MutinyS3ConnectorControlServiceGrpc;
 import ai.pipestream.connector.s3.v1.StartCrawlRequest;
 import ai.pipestream.connector.s3.v1.StartCrawlResponse;
+import ai.pipestream.connector.s3.v1.StreamFileLocationsRequest;
+import ai.pipestream.connector.s3.v1.StreamFileLocationsResponse;
 import ai.pipestream.connector.s3.v1.TestBucketCrawlRequest;
 import ai.pipestream.connector.s3.v1.TestBucketCrawlResponse;
 import com.google.protobuf.Timestamp;
 import io.grpc.Status;
 import io.quarkus.grpc.GrpcService;
+import io.smallrye.mutiny.Multi;
 import io.smallrye.mutiny.Uni;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
+import java.net.URLConnection;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * gRPC service implementation for S3 connector control operations.
@@ -61,6 +70,9 @@ public class S3ConnectorControlServiceImpl extends MutinyS3ConnectorControlServi
 
     @Inject
     S3TestCrawlService testCrawlService;
+
+    @Inject
+    S3ClientFactory clientFactory;
 
     /**
      * Initiates a crawl operation for an S3 bucket.
@@ -220,6 +232,94 @@ public class S3ConnectorControlServiceImpl extends MutinyS3ConnectorControlServi
             dryRun,
             maxSample
         );
+    }
+
+    @Override
+    public Multi<StreamFileLocationsResponse> streamFileLocations(StreamFileLocationsRequest request) {
+        if (request.getBucket().isBlank()) {
+            return Multi.createFrom().failure(Status.INVALID_ARGUMENT
+                    .withDescription("bucket is required").asRuntimeException());
+        }
+        if (!request.hasConnectionConfig()) {
+            return Multi.createFrom().failure(Status.INVALID_ARGUMENT
+                    .withDescription("connection_config is required").asRuntimeException());
+        }
+
+        String bucket = request.getBucket();
+        String prefix = request.getPrefix().isBlank() ? null : request.getPrefix();
+        String extFilter = request.getExtensionFilter().isBlank() ? null : request.getExtensionFilter().toLowerCase();
+        int maxFiles = request.getMaxFiles();
+
+        LOG.infof("StreamFileLocations: bucket=%s, prefix=%s, extFilter=%s, maxFiles=%d",
+                bucket, prefix, extFilter, maxFiles);
+
+        AtomicInteger count = new AtomicInteger(0);
+
+        return Multi.createFrom().uni(clientFactory.createTestClient(request.getConnectionConfig()))
+                .flatMap(client -> {
+                    // Paginate through all objects using recursive continuation tokens
+                    return Multi.createFrom().emitter(emitter -> {
+                        listPage(client, bucket, prefix, null, extFilter, maxFiles, count, emitter);
+                    });
+                });
+    }
+
+    private void listPage(software.amazon.awssdk.services.s3.S3AsyncClient client,
+                           String bucket, String prefix, String continuationToken,
+                           String extFilter, int maxFiles, AtomicInteger count,
+                           io.smallrye.mutiny.subscription.MultiEmitter<? super StreamFileLocationsResponse> emitter) {
+
+        ListObjectsV2Request.Builder reqBuilder = ListObjectsV2Request.builder()
+                .bucket(bucket).maxKeys(1000);
+        if (prefix != null) reqBuilder.prefix(prefix);
+        if (continuationToken != null) reqBuilder.continuationToken(continuationToken);
+
+        client.listObjectsV2(reqBuilder.build()).whenComplete((response, error) -> {
+            if (error != null) {
+                emitter.fail(error);
+                try { client.close(); } catch (Exception ignored) {}
+                return;
+            }
+
+            for (S3Object obj : response.contents()) {
+                if (maxFiles > 0 && count.get() >= maxFiles) break;
+
+                String key = obj.key();
+                if (extFilter != null && !key.toLowerCase().endsWith(extFilter)) continue;
+
+                String filename = key.contains("/") ? key.substring(key.lastIndexOf('/') + 1) : key;
+                String contentType = URLConnection.guessContentTypeFromName(filename);
+                if (contentType == null) contentType = "application/octet-stream";
+
+                emitter.emit(StreamFileLocationsResponse.newBuilder()
+                        .setFile(S3FileLocation.newBuilder()
+                                .setKey(key)
+                                .setSizeBytes(obj.size())
+                                .setLastModified(Timestamp.newBuilder()
+                                        .setSeconds(obj.lastModified().getEpochSecond())
+                                        .setNanos(obj.lastModified().getNano()).build())
+                                .setFilename(filename)
+                                .setContentType(contentType)
+                                .setSourceUrl("s3://" + bucket + "/" + key)
+                                .build())
+                        .build());
+                count.incrementAndGet();
+            }
+
+            if (maxFiles > 0 && count.get() >= maxFiles) {
+                emitter.complete();
+                try { client.close(); } catch (Exception ignored) {}
+                return;
+            }
+
+            String nextToken = response.nextContinuationToken();
+            if (nextToken != null) {
+                listPage(client, bucket, prefix, nextToken, extFilter, maxFiles, count, emitter);
+            } else {
+                emitter.complete();
+                try { client.close(); } catch (Exception ignored) {}
+            }
+        });
     }
 
     /**

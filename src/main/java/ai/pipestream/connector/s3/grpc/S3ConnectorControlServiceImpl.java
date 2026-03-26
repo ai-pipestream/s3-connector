@@ -1,9 +1,12 @@
 package ai.pipestream.connector.s3.grpc;
 
+import ai.pipestream.connector.s3.rest.S3ProtoJson;
 import ai.pipestream.connector.s3.service.S3CrawlService;
 import ai.pipestream.connector.s3.service.DatasourceConfigService;
 import ai.pipestream.connector.s3.service.S3ClientFactory;
 import ai.pipestream.connector.s3.service.S3TestCrawlService;
+import ai.pipestream.connector.s3.v1.DeleteTestFileRequest;
+import ai.pipestream.connector.s3.v1.DeleteTestFileResponse;
 import ai.pipestream.connector.s3.v1.S3ConnectionConfig;
 import ai.pipestream.connector.s3.v1.S3FileLocation;
 import ai.pipestream.connector.s3.v1.MutinyS3ConnectorControlServiceGrpc;
@@ -13,6 +16,11 @@ import ai.pipestream.connector.s3.v1.StreamFileLocationsRequest;
 import ai.pipestream.connector.s3.v1.StreamFileLocationsResponse;
 import ai.pipestream.connector.s3.v1.TestBucketCrawlRequest;
 import ai.pipestream.connector.s3.v1.TestBucketCrawlResponse;
+import ai.pipestream.connector.s3.v1.UploadTestFileRequest;
+import ai.pipestream.connector.s3.v1.UploadTestFileResponse;
+import software.amazon.awssdk.core.async.AsyncRequestBody;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import com.google.protobuf.Timestamp;
 import io.grpc.Status;
 import io.quarkus.grpc.GrpcService;
@@ -116,9 +124,10 @@ public class S3ConnectorControlServiceImpl extends MutinyS3ConnectorControlServi
                 .asRuntimeException());
         }
 
-        if (headerApiKey == null || headerApiKey.isBlank()) {
+        String apiKey = firstNonBlank(request.getApiKey(), headerApiKey);
+        if (apiKey == null || apiKey.isBlank()) {
             return Uni.createFrom().failure(Status.UNAUTHENTICATED
-                .withDescription("x-api-key header is required")
+                .withDescription("api_key is required (provide via x-api-key header or api_key field)")
                 .asRuntimeException());
         }
 
@@ -140,7 +149,7 @@ public class S3ConnectorControlServiceImpl extends MutinyS3ConnectorControlServi
         String prefix = firstNonBlank(request.getPrefix());
         String requestId = firstNonBlank(request.getRequestId(), UUID.randomUUID().toString());
 
-        return datasourceConfigService.registerDatasourceConfig(datasourceId, headerApiKey, connectionConfig)
+        return datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, connectionConfig)
             .flatMap(v -> {
                 LOG.infof("Received StartCrawl request: datasourceId=%s, bucket=%s, prefix=%s, requestId=%s",
                     datasourceId, bucket, prefix, requestId);
@@ -323,6 +332,138 @@ public class S3ConnectorControlServiceImpl extends MutinyS3ConnectorControlServi
     }
 
     /**
+     * Uploads a test file to an S3 bucket.
+     * <p>
+     * This method is intended for use by E2E tests to seed data into a bucket
+     * before triggering a crawl. It creates a temporary S3 client, uploads the
+     * provided content, and returns the ETag and size on success.
+     * </p>
+     *
+     * @param request the {@link UploadTestFileRequest} containing bucket, key, content, and connection config
+     * @return a {@link Uni} that completes with {@link UploadTestFileResponse}
+     * @since 1.0.0
+     */
+    @Override
+    public Uni<UploadTestFileResponse> uploadTestFile(UploadTestFileRequest request) {
+        if (request.getBucket().isBlank()) {
+            return Uni.createFrom().failure(Status.INVALID_ARGUMENT
+                    .withDescription("bucket is required").asRuntimeException());
+        }
+        if (request.getKey().isBlank()) {
+            return Uni.createFrom().failure(Status.INVALID_ARGUMENT
+                    .withDescription("key is required").asRuntimeException());
+        }
+        if (request.getContent().isEmpty()) {
+            return Uni.createFrom().failure(Status.INVALID_ARGUMENT
+                    .withDescription("content is required").asRuntimeException());
+        }
+        if (!request.hasConnectionConfig()) {
+            return Uni.createFrom().failure(Status.INVALID_ARGUMENT
+                    .withDescription("connection_config is required").asRuntimeException());
+        }
+
+        String bucket = request.getBucket();
+        String key = request.getKey();
+        byte[] content = request.getContent().toByteArray();
+        String contentType = request.getContentType().isBlank() ? "application/octet-stream" : request.getContentType();
+
+        LOG.infof("UploadTestFile: bucket=%s, key=%s, size=%d, contentType=%s", bucket, key, content.length, contentType);
+
+        return Multi.createFrom().uni(clientFactory.createTestClient(request.getConnectionConfig()))
+                .flatMap(client -> {
+                    PutObjectRequest putRequest = PutObjectRequest.builder()
+                            .bucket(bucket)
+                            .key(key)
+                            .contentType(contentType)
+                            .contentLength((long) content.length)
+                            .build();
+
+                    return Multi.createFrom().completionStage(
+                            client.putObject(putRequest, AsyncRequestBody.fromBytes(content))
+                    ).onTermination().invoke(() -> {
+                        try { client.close(); } catch (Exception ignored) {}
+                    });
+                })
+                .toUni()
+                .map(putResponse -> {
+                    LOG.infof("UploadTestFile succeeded: bucket=%s, key=%s, etag=%s", bucket, key, putResponse.eTag());
+                    return UploadTestFileResponse.newBuilder()
+                            .setSuccess(true)
+                            .setEtag(putResponse.eTag() != null ? putResponse.eTag() : "")
+                            .setSizeBytes(content.length)
+                            .build();
+                })
+                .onFailure().recoverWithItem(err -> {
+                    LOG.warnf(err, "UploadTestFile failed: bucket=%s, key=%s", bucket, key);
+                    return UploadTestFileResponse.newBuilder()
+                            .setSuccess(false)
+                            .setErrorMessage(err.getMessage() != null ? err.getMessage() : "Upload failed")
+                            .build();
+                });
+    }
+
+    /**
+     * Deletes a test file from an S3 bucket.
+     * <p>
+     * This method is intended for use by E2E tests to clean up seeded test data
+     * after a crawl has completed. It creates a temporary S3 client and deletes
+     * the specified object.
+     * </p>
+     *
+     * @param request the {@link DeleteTestFileRequest} containing bucket, key, and connection config
+     * @return a {@link Uni} that completes with {@link DeleteTestFileResponse}
+     * @since 1.0.0
+     */
+    @Override
+    public Uni<DeleteTestFileResponse> deleteTestFile(DeleteTestFileRequest request) {
+        if (request.getBucket().isBlank()) {
+            return Uni.createFrom().failure(Status.INVALID_ARGUMENT
+                    .withDescription("bucket is required").asRuntimeException());
+        }
+        if (request.getKey().isBlank()) {
+            return Uni.createFrom().failure(Status.INVALID_ARGUMENT
+                    .withDescription("key is required").asRuntimeException());
+        }
+        if (!request.hasConnectionConfig()) {
+            return Uni.createFrom().failure(Status.INVALID_ARGUMENT
+                    .withDescription("connection_config is required").asRuntimeException());
+        }
+
+        String bucket = request.getBucket();
+        String key = request.getKey();
+
+        LOG.infof("DeleteTestFile: bucket=%s, key=%s", bucket, key);
+
+        return Multi.createFrom().uni(clientFactory.createTestClient(request.getConnectionConfig()))
+                .flatMap(client -> {
+                    DeleteObjectRequest deleteRequest = DeleteObjectRequest.builder()
+                            .bucket(bucket)
+                            .key(key)
+                            .build();
+
+                    return Multi.createFrom().completionStage(
+                            client.deleteObject(deleteRequest)
+                    ).onTermination().invoke(() -> {
+                        try { client.close(); } catch (Exception ignored) {}
+                    });
+                })
+                .toUni()
+                .map(deleteResponse -> {
+                    LOG.infof("DeleteTestFile succeeded: bucket=%s, key=%s", bucket, key);
+                    return DeleteTestFileResponse.newBuilder()
+                            .setSuccess(true)
+                            .build();
+                })
+                .onFailure().recoverWithItem(err -> {
+                    LOG.warnf(err, "DeleteTestFile failed: bucket=%s, key=%s", bucket, key);
+                    return DeleteTestFileResponse.newBuilder()
+                            .setSuccess(false)
+                            .setErrorMessage(err.getMessage() != null ? err.getMessage() : "Delete failed")
+                            .build();
+                });
+    }
+
+    /**
      * Returns the first non-blank string from the provided values.
      * <p>
      * Utility method for selecting the first non-null, non-blank string
@@ -334,11 +475,6 @@ public class S3ConnectorControlServiceImpl extends MutinyS3ConnectorControlServi
      * @return the first non-blank string, or null if all values are blank or null
      */
     private static String firstNonBlank(String... values) {
-        for (String value : values) {
-            if (value != null && !value.isBlank()) {
-                return value;
-            }
-        }
-        return null;
+        return S3ProtoJson.firstNonBlank(values);
     }
 }

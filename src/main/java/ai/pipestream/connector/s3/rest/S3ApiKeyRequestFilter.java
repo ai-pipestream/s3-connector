@@ -17,6 +17,12 @@ import java.util.Map;
 @Priority(Priorities.AUTHENTICATION)
 public class S3ApiKeyRequestFilter implements ContainerRequestFilter {
 
+    /**
+     * Default constructor for S3ApiKeyRequestFilter.
+     */
+    public S3ApiKeyRequestFilter() {
+    }
+
     private static final String HDR = "x-api-key";
 
     @Override

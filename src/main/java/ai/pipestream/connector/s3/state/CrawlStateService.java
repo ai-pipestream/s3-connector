@@ -10,9 +10,18 @@ import jakarta.enterprise.context.ApplicationScoped;
 @ApplicationScoped
 public class CrawlStateService {
 
+    /**
+     * Default constructor for CrawlStateService.
+     */
     public CrawlStateService() {
     }
 
+    /**
+     * Creates a new crawl state record.
+     *
+     * @param state the crawl state entity to persist
+     * @return the persisted entity
+     */
     @WithTransaction
     public Uni<CrawlStateEntity> createState(CrawlStateEntity state) {
         if (state == null) {
@@ -21,6 +30,12 @@ public class CrawlStateService {
         return state.persist().replaceWith(state);
     }
 
+    /**
+     * Retrieves a crawl state by its ID.
+     *
+     * @param id the primary key ID
+     * @return the crawl state entity
+     */
     @WithTransaction
     public Uni<CrawlStateEntity> getState(Long id) {
         if (id == null || id <= 0) {
@@ -30,6 +45,12 @@ public class CrawlStateService {
             .onItem().ifNull().failWith(() -> new IllegalStateException("No crawl state found for id=" + id));
     }
 
+    /**
+     * Lists all crawl states for a specific datasource.
+     *
+     * @param datasourceId datasource identifier
+     * @return list of crawl states
+     */
     @WithTransaction
     public Uni<java.util.List<CrawlStateEntity>> listStatesForDatasource(String datasourceId) {
         if (datasourceId == null || datasourceId.isBlank()) {
@@ -38,6 +59,12 @@ public class CrawlStateService {
         return CrawlStateEntity.find("datasourceId", datasourceId).list();
     }
 
+    /**
+     * Deletes a crawl state by its ID.
+     *
+     * @param id the primary key ID
+     * @return void completion
+     */
     @WithTransaction
     public Uni<Void> deleteState(Long id) {
         if (id == null || id <= 0) {
@@ -50,6 +77,13 @@ public class CrawlStateService {
             .replaceWithVoid();
     }
 
+    /**
+     * Updates an existing crawl state using the provided updater function.
+     *
+     * @param id      the primary key ID
+     * @param updater function to modify the entity
+     * @return the updated entity
+     */
     @WithTransaction
     public Uni<CrawlStateEntity> updateState(Long id, java.util.function.Consumer<CrawlStateEntity> updater) {
         if (id == null || id <= 0) {

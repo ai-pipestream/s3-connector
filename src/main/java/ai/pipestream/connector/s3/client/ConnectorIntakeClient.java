@@ -19,6 +19,12 @@ public class ConnectorIntakeClient {
 
     private static final Logger LOG = Logger.getLogger(ConnectorIntakeClient.class);
 
+    /**
+     * Default constructor for ConnectorIntakeClient.
+     */
+    public ConnectorIntakeClient() {
+    }
+
     @Inject
     @RestClient
     ConnectorIntakeRestClient restClient;

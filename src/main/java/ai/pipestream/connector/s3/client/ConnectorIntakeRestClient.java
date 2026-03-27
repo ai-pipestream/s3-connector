@@ -18,6 +18,20 @@ import java.io.InputStream;
 @Path("/uploads/raw")
 public interface ConnectorIntakeRestClient {
 
+    /**
+     * Uploads an S3 object to the connector-intake-service as a raw binary stream.
+     *
+     * @param body          input stream of the object body
+     * @param contentType   MIME content type of the object
+     * @param contentLength size of the object in bytes
+     * @param datasourceId  datasource identifier for the upload
+     * @param apiKey        API key for authentication
+     * @param sourceUri     source URI of the S3 object
+     * @param sourcePath    source path of the S3 object
+     * @param filename      filename for the object
+     * @param requestId     request identifier for the upload
+     * @return the intake service response
+     */
     @POST
     @Consumes(MediaType.WILDCARD)
     Uni<Response> uploadRaw(

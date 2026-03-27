@@ -21,11 +21,18 @@ import jakarta.ws.rs.core.MediaType;
 import java.util.List;
 
 /**
- * Lists and updates S3 datasource registrations (operator-only; includes secrets).
+ * REST resource for listing and updating S3 datasource registrations.
+ * This is an operator-only resource as it includes secrets like API keys.
  */
 @Path("/api/datasources")
 @Produces(MediaType.APPLICATION_JSON)
 public class DatasourceResource {
+
+    /**
+     * Default constructor for DatasourceResource.
+     */
+    public DatasourceResource() {
+    }
 
     @Inject
     DatasourceConfigService datasourceConfigService;
@@ -33,12 +40,23 @@ public class DatasourceResource {
     @Inject
     ObjectMapper objectMapper;
 
+    /**
+     * Lists all registered datasources.
+     *
+     * @return list of datasource configurations
+     */
     @GET
     public Uni<List<DatasourceConfigDto>> list() {
         return DatasourceConfigEntity.<DatasourceConfigEntity>listAll()
             .map(list -> list.stream().map(this::toDto).toList());
     }
 
+    /**
+     * Gets a specific datasource configuration by ID.
+     *
+     * @param id datasource identifier
+     * @return the datasource configuration
+     */
     @GET
     @Path("/{id}")
     public Uni<DatasourceConfigDto> get(@PathParam("id") String id) {
@@ -52,6 +70,14 @@ public class DatasourceResource {
             .transform(e -> new NotFoundException("Datasource not found: " + id));
     }
 
+    /**
+     * Registers or updates a datasource configuration.
+     *
+     * @param id            datasource identifier
+     * @param headerApiKey  API key from headers
+     * @param body          request body with connection details
+     * @return the updated datasource configuration
+     */
     @PUT
     @Path("/{id}")
     @Consumes(MediaType.APPLICATION_JSON)
@@ -99,10 +125,30 @@ public class DatasourceResource {
         }
     }
 
+    /**
+     * Request DTO for updating a datasource.
+     */
     public static class PutDatasourceRequest {
+        /**
+         * S3 connection configuration in JSON format.
+         */
         public JsonNode connectionConfig;
+
+        /**
+         * Default constructor for PutDatasourceRequest.
+         */
+        public PutDatasourceRequest() {
+        }
     }
 
+    /**
+     * DTO representing a datasource configuration.
+     *
+     * @param datasourceId datasource identifier
+     * @param apiKey       API key for authentication
+     * @param s3Config     S3 connection configuration
+     */
     public record DatasourceConfigDto(String datasourceId, String apiKey, JsonNode s3Config) {
     }
 }
+

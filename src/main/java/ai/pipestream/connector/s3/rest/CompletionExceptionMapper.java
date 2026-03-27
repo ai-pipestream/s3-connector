@@ -8,8 +8,21 @@ import jakarta.ws.rs.ext.Provider;
 import java.util.Map;
 import java.util.concurrent.CompletionException;
 
+/**
+ * Maps {@link CompletionException} to an appropriate JAX-RS {@link Response}.
+ * This mapper unwraps the cause of the completion exception and handles common
+ * exceptions like {@link IllegalArgumentException}, {@link IllegalStateException},
+ * and {@link NotFoundException}.
+ */
 @Provider
 public class CompletionExceptionMapper implements ExceptionMapper<CompletionException> {
+
+    /**
+     * Default constructor for CompletionExceptionMapper.
+     */
+    public CompletionExceptionMapper() {
+    }
+
     @Override
     public Response toResponse(CompletionException exception) {
         Throwable c = exception.getCause() != null ? exception.getCause() : exception;

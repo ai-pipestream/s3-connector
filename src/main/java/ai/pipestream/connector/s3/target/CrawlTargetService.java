@@ -14,11 +14,22 @@ import java.util.List;
 public class CrawlTargetService {
     private static final Logger LOG = Logger.getLogger(CrawlTargetService.class);
 
+    /**
+     * Default constructor for CrawlTargetService.
+     */
     public CrawlTargetService() {
     }
 
     /**
      * Immutable input model for crawl target operations.
+     *
+     * @param datasourceId      datasource identifier
+     * @param targetName        descriptive name
+     * @param bucket            S3 bucket name
+     * @param objectPrefix      S3 object prefix
+     * @param mode              crawl mode
+     * @param failureAllowance   max failures allowed
+     * @param maxKeysPerRequest max keys per S3 request
      */
     public record CrawlTargetSpec(
         String datasourceId,
@@ -29,6 +40,9 @@ public class CrawlTargetService {
         int failureAllowance,
         int maxKeysPerRequest
     ) {
+        /**
+         * Compact constructor for CrawlTargetSpec with validation.
+         */
         public CrawlTargetSpec {
             if (datasourceId == null || datasourceId.isBlank()) {
                 throw new IllegalArgumentException("datasourceId is required");
@@ -51,6 +65,12 @@ public class CrawlTargetService {
         }
     }
 
+    /**
+     * Creates a new crawl target record.
+     *
+     * @param spec crawl target specification
+     * @return the created entity
+     */
     @WithTransaction
     public Uni<CrawlTargetEntity> createTarget(CrawlTargetSpec spec) {
         LOG.debugf("Creating crawl target for datasource=%s, bucket=%s", spec.datasourceId(), spec.bucket());
@@ -69,6 +89,12 @@ public class CrawlTargetService {
             .replaceWith(target);
     }
 
+    /**
+     * Retrieves a crawl target by its ID.
+     *
+     * @param id the primary key ID
+     * @return the crawl target entity
+     */
     @WithTransaction
     public Uni<CrawlTargetEntity> getTarget(Long id) {
         if (id == null || id <= 0) {
@@ -80,6 +106,12 @@ public class CrawlTargetService {
             );
     }
 
+    /**
+     * Lists all crawl targets for a specific datasource.
+     *
+     * @param datasourceId datasource identifier
+     * @return list of crawl targets
+     */
     @WithTransaction
     public Uni<List<CrawlTargetEntity>> listTargetsForDatasource(String datasourceId) {
         if (datasourceId == null || datasourceId.isBlank()) {
@@ -88,6 +120,13 @@ public class CrawlTargetService {
         return CrawlTargetEntity.find("datasourceId", datasourceId).list();
     }
 
+    /**
+     * Updates an existing crawl target.
+     *
+     * @param id   the primary key ID to update
+     * @param spec new target specification
+     * @return the updated entity
+     */
     @WithTransaction
     public Uni<CrawlTargetEntity> updateTarget(Long id, CrawlTargetSpec spec) {
         if (spec == null) {
@@ -99,6 +138,12 @@ public class CrawlTargetService {
         });
     }
 
+    /**
+     * Deletes a crawl target by its ID.
+     *
+     * @param id the primary key ID
+     * @return void completion
+     */
     @WithTransaction
     public Uni<Void> deleteTarget(Long id) {
         if (id == null || id <= 0) {
@@ -111,6 +156,12 @@ public class CrawlTargetService {
             .replaceWithVoid();
     }
 
+    /**
+     * Normalizes an S3 prefix string.
+     *
+     * @param prefix the prefix to normalize
+     * @return the normalized prefix, or null if empty
+     */
     public static String normalizePrefix(String prefix) {
         if (prefix == null || prefix.isBlank()) {
             return null;

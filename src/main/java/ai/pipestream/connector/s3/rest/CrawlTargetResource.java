@@ -21,15 +21,28 @@ import java.time.OffsetDateTime;
 import java.util.List;
 
 /**
- * CRUD for {@link CrawlTargetEntity} via {@link CrawlTargetService}.
+ * REST resource for managing {@link CrawlTargetEntity} via {@link CrawlTargetService}.
+ * Provides CRUD operations for crawl targets.
  */
 @Path("/api/crawl-targets")
 @Produces(MediaType.APPLICATION_JSON)
 public class CrawlTargetResource {
 
+    /**
+     * Default constructor for CrawlTargetResource.
+     */
+    public CrawlTargetResource() {
+    }
+
     @Inject
     CrawlTargetService crawlTargetService;
 
+    /**
+     * Lists crawl targets for a specific datasource.
+     *
+     * @param datasourceId datasource identifier
+     * @return list of crawl targets
+     */
     @GET
     public Uni<List<CrawlTargetDto>> list(@QueryParam("datasourceId") String datasourceId) {
         if (datasourceId == null || datasourceId.isBlank()) {
@@ -38,12 +51,24 @@ public class CrawlTargetResource {
         return crawlTargetService.listTargetsForDatasource(datasourceId).map(list -> list.stream().map(CrawlTargetDto::fromEntity).toList());
     }
 
+    /**
+     * Gets a specific crawl target by ID.
+     *
+     * @param id crawl target ID
+     * @return the crawl target
+     */
     @GET
     @Path("/{id}")
     public Uni<CrawlTargetDto> get(@PathParam("id") long id) {
         return crawlTargetService.getTarget(id).map(CrawlTargetDto::fromEntity);
     }
 
+    /**
+     * Creates a new crawl target.
+     *
+     * @param body request body with crawl target details
+     * @return the created crawl target
+     */
     @POST
     @Consumes(MediaType.APPLICATION_JSON)
     public Uni<CrawlTargetDto> create(CrawlTargetRequest body) {
@@ -62,6 +87,13 @@ public class CrawlTargetResource {
         return crawlTargetService.createTarget(spec).map(CrawlTargetDto::fromEntity);
     }
 
+    /**
+     * Updates an existing crawl target.
+     *
+     * @param id   crawl target ID to update
+     * @param body request body with updated crawl target details
+     * @return the updated crawl target
+     */
     @PUT
     @Path("/{id}")
     @Consumes(MediaType.APPLICATION_JSON)
@@ -81,22 +113,74 @@ public class CrawlTargetResource {
         return crawlTargetService.updateTarget(id, spec).map(CrawlTargetDto::fromEntity);
     }
 
+    /**
+     * Deletes a crawl target by ID.
+     *
+     * @param id crawl target ID to delete
+     * @return empty response
+     */
     @DELETE
     @Path("/{id}")
     public Uni<Response> delete(@PathParam("id") long id) {
         return crawlTargetService.deleteTarget(id).replaceWith(Response.noContent().build());
     }
 
+    /**
+     * Request DTO for creating or updating a crawl target.
+     */
     public static class CrawlTargetRequest {
+        /**
+         * Datasource identifier.
+         */
         public String datasourceId;
+        /**
+         * Descriptive name for the target.
+         */
         public String targetName;
+        /**
+         * S3 bucket name.
+         */
         public String bucket;
+        /**
+         * Optional S3 object prefix filter.
+         */
         public String objectPrefix;
+        /**
+         * Crawl mode (e.g., INITIAL, PERIODIC).
+         */
         public String mode = "INITIAL";
+        /**
+         * Number of failures allowed per object.
+         */
         public int failureAllowance = 1;
+        /**
+         * Maximum number of keys to request from S3 per batch.
+         */
         public int maxKeysPerRequest = 1000;
+
+        /**
+         * Default constructor for CrawlTargetRequest.
+         */
+        public CrawlTargetRequest() {
+        }
     }
 
+    /**
+     * DTO representing a crawl target.
+     *
+     * @param id                database ID
+     * @param datasourceId      datasource identifier
+     * @param targetName        target name
+     * @param bucket            S3 bucket name
+     * @param objectPrefix      S3 object prefix
+     * @param crawlMode         crawl mode
+     * @param failureAllowance   max failures allowed
+     * @param maxKeysPerRequest keys per S3 request
+     * @param enabled           whether target is enabled
+     * @param lastCrawlAt       timestamp of last crawl
+     * @param createdAt         creation timestamp
+     * @param updatedAt         last update timestamp
+     */
     public record CrawlTargetDto(
         Long id,
         String datasourceId,
@@ -111,6 +195,12 @@ public class CrawlTargetResource {
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt
     ) {
+        /**
+         * Creates a DTO from a {@link CrawlTargetEntity}.
+         *
+         * @param e the entity
+         * @return the DTO
+         */
         static CrawlTargetDto fromEntity(CrawlTargetEntity e) {
             return new CrawlTargetDto(
                 e.id,
@@ -129,3 +219,4 @@ public class CrawlTargetResource {
         }
     }
 }
+

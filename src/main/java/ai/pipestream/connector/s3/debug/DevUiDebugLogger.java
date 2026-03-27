@@ -20,6 +20,12 @@ import org.eclipse.microprofile.config.ConfigProvider;
 @ApplicationScoped
 public class DevUiDebugLogger {
 
+    /**
+     * Default constructor for DevUiDebugLogger.
+     */
+    public DevUiDebugLogger() {
+    }
+
     private static final Path DEBUG_LOG =
             Path.of("/work/core-services/repository-service/.cursor/debug-bcfa42.log");
 

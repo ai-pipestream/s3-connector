@@ -15,6 +15,14 @@ public final class S3ProtoJson {
     private S3ProtoJson() {
     }
 
+    /**
+     * Parses {@link S3ConnectionConfig} from a Jackson {@link JsonNode}.
+     *
+     * @param objectMapper Jackson object mapper
+     * @param node         JSON node to parse
+     * @return the parsed connection configuration
+     * @throws InvalidProtocolBufferException if the JSON is not a valid protobuf representation
+     */
     public static S3ConnectionConfig parseConnectionConfig(ObjectMapper objectMapper, JsonNode node)
         throws InvalidProtocolBufferException {
         if (node == null || node.isNull()) {
@@ -29,6 +37,12 @@ public final class S3ProtoJson {
         }
     }
 
+    /**
+     * Returns the first non-null and non-blank string from the provided values.
+     *
+     * @param values strings to check
+     * @return the first non-blank string, or null if none found
+     */
     public static String firstNonBlank(String... values) {
         for (String value : values) {
             if (value != null && !value.isBlank()) {

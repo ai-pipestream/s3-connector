@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [vue()],
   base: '/ui/',
   server: {
+    host: 'localhost',
     port: 5177,
     strictPort: true,
   },

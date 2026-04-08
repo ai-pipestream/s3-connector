@@ -37,7 +37,7 @@ pipestreamProtos {
 }
 
 dependencies {
-    implementation 'io.quarkiverse.quinoa:quarkus-quinoa:2.7.2'
+    implementation 'io.quarkiverse.quinoa:quarkus-quinoa:2.8.0'
     implementation 'io.quarkus:quarkus-container-image-docker'
     // Import pipestream BOM to align all managed versions (includes quarkus-amazon-services-bom)
     implementation platform("ai.pipestream:pipestream-bom:${pipestreamBomVersion}")

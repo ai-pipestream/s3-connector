@@ -26,7 +26,6 @@ import io.grpc.Status;
 import io.quarkus.grpc.GrpcService;
 import io.smallrye.mutiny.Multi;
 import io.smallrye.mutiny.Uni;
-import ai.pipestream.server.vertx.RunOnVertxContext;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
@@ -61,7 +60,6 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @since 1.0.0
  */
 @GrpcService
-@RunOnVertxContext
 public class S3ConnectorControlServiceImpl extends MutinyS3ConnectorControlServiceGrpc.S3ConnectorControlServiceImplBase {
 
     /**

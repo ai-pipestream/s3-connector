@@ -78,8 +78,16 @@ class EndToEndIntegrationTest {
 
     @org.junit.jupiter.api.BeforeEach
     void setupGrpcClient() {
-        int port = testUrl.getPort();
-        // Create a gRPC channel to the test application with API key header
+        // With use-separate-server=true (the default), gRPC runs on its own
+        // Netty server, NOT on testUrl's HTTP port. Read the real gRPC port
+        // from config — Quarkus populates `quarkus.grpc.server.test-port`
+        // after the server starts (random when configured as 0).
+        org.eclipse.microprofile.config.Config config = ConfigProvider.getConfig();
+        int port = config.getOptionalValue("quarkus.grpc.server.test-port", Integer.class)
+                .or(() -> config.getOptionalValue("quarkus.grpc.server.port", Integer.class))
+                .orElseThrow(() -> new IllegalStateException(
+                        "Cannot determine gRPC server port — neither quarkus.grpc.server.test-port "
+                                + "nor quarkus.grpc.server.port is set"));
         ManagedChannel channel = ManagedChannelBuilder.forAddress("localhost", port)
                 .usePlaintext()
                 .intercept(new ApiKeyClientInterceptor("test-api-key"))

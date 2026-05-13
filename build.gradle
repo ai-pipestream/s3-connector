@@ -88,7 +88,7 @@ dependencies {
     // Testcontainers - version managed by pipestream-bom
     testImplementation 'org.testcontainers:testcontainers'
     // LocalStack for S3 Dev Services
-    testImplementation 'org.testcontainers:testcontainers-localstack:2.0.4'
+    testImplementation 'org.testcontainers:testcontainers-localstack:2.0.5'
     testImplementation libs.assertj.core
 }
 

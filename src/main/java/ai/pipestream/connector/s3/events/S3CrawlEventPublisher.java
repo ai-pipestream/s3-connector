@@ -98,7 +98,8 @@ public class S3CrawlEventPublisher {
      */
     public S3CrawlEvent buildEvent(String datasourceId, String bucket, String key,
                                    String versionId, long sizeBytes, String etag, Instant lastModified) {
-        return buildEvent(datasourceId, bucket, key, versionId, sizeBytes, etag, lastModified, CrawlSource.INCREMENTAL);
+        return buildEvent(datasourceId, bucket, key, versionId, sizeBytes, etag, lastModified,
+            CrawlSource.INCREMENTAL, "");
     }
 
     /**
@@ -112,15 +113,16 @@ public class S3CrawlEventPublisher {
      * @param etag the S3 ETag for the object
      * @param lastModified the last modified timestamp of the object
      * @param crawlSource the crawl source classification
+     * @param crawlId the crawl invocation id stamped on the event (may be empty)
      * @return a fully constructed {@link S3CrawlEvent} protobuf message
      * @since 1.0.0
      */
     public S3CrawlEvent buildEvent(String datasourceId, String bucket, String key,
                                    String versionId, long sizeBytes, String etag, Instant lastModified,
-                                   CrawlSource crawlSource) {
+                                   CrawlSource crawlSource, String crawlId) {
         Instant now = Instant.now();
         String eventId = computeEventId(datasourceId, bucket, key, versionId, now);
-        
+
         // Build source URL
         String sourceUrl = "s3://" + bucket + "/" + key;
         if (versionId != null && !versionId.isBlank()) {
@@ -141,6 +143,7 @@ public class S3CrawlEventPublisher {
             .setEtag(etag != null && !etag.isBlank() ? etag : "")
             .setLastModified(toProtoTimestamp(lastModified))
             .setSourceUrl(sourceUrl)
+            .setCrawlId(crawlId != null ? crawlId : "")
             .build();
     }
 

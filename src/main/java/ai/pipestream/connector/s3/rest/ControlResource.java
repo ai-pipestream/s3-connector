@@ -89,7 +89,7 @@ public class ControlResource {
         String requestId = S3ProtoJson.firstNonBlank(body.requestId, UUID.randomUUID().toString());
 
         return datasourceConfigService.registerDatasourceConfig(datasourceId, headerApiKey, connectionConfig)
-            .flatMap(v -> crawlService.crawlBucket(datasourceId, bucket, prefix))
+            .flatMap(v -> crawlService.crawlBucket(datasourceId, bucket, prefix, requestId))
             .replaceWith(new StartCrawlResponseDto(true, "Crawl accepted", requestId, Instant.now()));
     }
 

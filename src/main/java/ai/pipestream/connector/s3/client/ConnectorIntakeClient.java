@@ -39,6 +39,7 @@ public class ConnectorIntakeClient {
      * @param key             S3 object key
      * @param contentType     MIME content type of the object
      * @param sizeBytes       size of the object in bytes
+     * @param crawlId         the crawl invocation id (forwarded as x-crawl-id); may be empty
      * @param bodyInputStream input stream of the object body
      * @return the intake service response
      */
@@ -50,6 +51,7 @@ public class ConnectorIntakeClient {
         String key,
         String contentType,
         long sizeBytes,
+        String crawlId,
         InputStream bodyInputStream) {
 
         LOG.infof("Starting upload for %s (size: %d bytes)", sourceUrl, sizeBytes);
@@ -65,7 +67,8 @@ public class ConnectorIntakeClient {
                 sourceUrl,
                 key,
                 key,
-                requestId
+                requestId,
+                crawlId == null ? "" : crawlId
             )
             .map(response -> {
                 String respContentType = response.getHeaderString("content-type");

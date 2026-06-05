@@ -30,6 +30,7 @@ public interface ConnectorIntakeRestClient {
      * @param sourcePath    source path of the S3 object
      * @param filename      filename for the object
      * @param requestId     request identifier for the upload
+     * @param crawlId       crawl invocation id, forwarded so the whole crawl is one run
      * @return the intake service response
      */
     @POST
@@ -43,6 +44,7 @@ public interface ConnectorIntakeRestClient {
         @HeaderParam("x-source-uri") String sourceUri,
         @HeaderParam("x-source-path") String sourcePath,
         @HeaderParam("x-filename") String filename,
-        @HeaderParam("x-request-id") String requestId
+        @HeaderParam("x-request-id") String requestId,
+        @HeaderParam("x-crawl-id") String crawlId
     );
 }

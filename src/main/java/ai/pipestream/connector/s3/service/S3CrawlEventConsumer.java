@@ -87,6 +87,7 @@ public class S3CrawlEventConsumer {
                                 event.getKey(),
                                 s3Response.response().contentType(),
                                 s3Response.response().contentLength(),
+                                event.getCrawlId(),
                                 s3Response
                             );
                         })

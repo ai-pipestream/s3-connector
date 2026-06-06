@@ -92,7 +92,21 @@ public class S3CrawlService {
      * @since 1.0.0
      */
     public Uni<Void> crawlBucket(String datasourceId, String bucket, String prefix) {
-        return crawlBucket(datasourceId, bucket, prefix, CrawlSource.INITIAL);
+        return crawlBucket(datasourceId, bucket, prefix, "");
+    }
+
+    /**
+     * Crawls an S3 bucket, stamping every emitted event with {@code crawlId} so the
+     * whole crawl is accounted for as one run downstream.
+     *
+     * @param datasourceId unique identifier for the datasource
+     * @param bucket       S3 bucket name
+     * @param prefix       optional prefix filter (may be {@code null})
+     * @param crawlId      the crawl invocation id (the StartCrawl request_id); may be empty
+     * @return a Uni that completes when all objects have been processed
+     */
+    public Uni<Void> crawlBucket(String datasourceId, String bucket, String prefix, String crawlId) {
+        return crawlBucket(datasourceId, bucket, prefix, CrawlSource.INITIAL, crawlId);
     }
 
     /**
@@ -105,7 +119,24 @@ public class S3CrawlService {
      * @return a Uni that completes when all objects have been processed
      */
     public Uni<Void> crawlBucket(String datasourceId, String bucket, String prefix, CrawlSource crawlSource) {
-        LOG.infof("Starting S3 crawl: datasourceId=%s, bucket=%s, prefix=%s", datasourceId, bucket, prefix);
+        return crawlBucket(datasourceId, bucket, prefix, crawlSource, "");
+    }
+
+    /**
+     * Crawls an S3 bucket and emits crawl events for discovered objects, each
+     * carrying {@code crawlId}.
+     *
+     * @param datasourceId unique identifier for the datasource
+     * @param bucket       S3 bucket name
+     * @param prefix       optional prefix filter (may be {@code null})
+     * @param crawlSource  whether this is an initial or incremental crawl
+     * @param crawlId      the crawl invocation id; may be empty
+     * @return a Uni that completes when all objects have been processed
+     */
+    public Uni<Void> crawlBucket(String datasourceId, String bucket, String prefix, CrawlSource crawlSource,
+                                 String crawlId) {
+        LOG.infof("Starting S3 crawl: datasourceId=%s, bucket=%s, prefix=%s, crawlId=%s",
+            datasourceId, bucket, prefix, crawlId);
 
         AtomicInteger totalObjects = new AtomicInteger(0);
 
@@ -122,7 +153,7 @@ public class S3CrawlService {
                         .prefix(actualPrefix)
                         .build();
 
-                    return crawlPage(client, firstRequest, datasourceId, bucket, crawlSource, totalObjects)
+                    return crawlPage(client, firstRequest, datasourceId, bucket, crawlSource, crawlId, totalObjects)
                         .invoke(() -> LOG.infof("Completed S3 crawl: emitted %d events for bucket=%s, prefix=%s",
                             totalObjects.get(), bucket, actualPrefix));
                 }));
@@ -134,14 +165,14 @@ public class S3CrawlService {
      */
     private Uni<Void> crawlPage(S3AsyncClient client, ListObjectsV2Request request,
                                 String datasourceId, String bucket,
-                                CrawlSource crawlSource, AtomicInteger totalObjects) {
+                                CrawlSource crawlSource, String crawlId, AtomicInteger totalObjects) {
         return Uni.createFrom().completionStage(client.listObjectsV2(request))
             .flatMap(page -> {
                 // Publish all events in this page as a concurrent batch
                 List<Uni<Void>> pageEvents = page.contents().stream()
                     .map(s3Object -> {
                         totalObjects.incrementAndGet();
-                        return eventPublisher.publish(createCrawlEvent(datasourceId, bucket, s3Object, crawlSource));
+                        return eventPublisher.publish(createCrawlEvent(datasourceId, bucket, s3Object, crawlSource, crawlId));
                     })
                     .collect(Collectors.toList());
 
@@ -154,15 +185,16 @@ public class S3CrawlService {
                     ListObjectsV2Request nextRequest = request.toBuilder()
                         .continuationToken(page.nextContinuationToken())
                         .build();
-                    return publishPage.flatMap(ignored -> crawlPage(client, nextRequest, datasourceId, bucket, crawlSource, totalObjects));
+                    return publishPage.flatMap(ignored -> crawlPage(client, nextRequest, datasourceId, bucket, crawlSource, crawlId, totalObjects));
                 }
                 return publishPage;
             });
     }
 
-    private S3CrawlEvent createCrawlEvent(String datasourceId, String bucket, S3Object s3Object, CrawlSource crawlSource) {
-        Instant lastModified = s3Object.lastModified() != null 
-            ? s3Object.lastModified() 
+    private S3CrawlEvent createCrawlEvent(String datasourceId, String bucket, S3Object s3Object,
+                                          CrawlSource crawlSource, String crawlId) {
+        Instant lastModified = s3Object.lastModified() != null
+            ? s3Object.lastModified()
             : Instant.now();
 
         // Note: S3Object from ListObjectsV2 doesn't include versionId
@@ -178,7 +210,8 @@ public class S3CrawlService {
             s3Object.size(),
             s3Object.eTag(),
             lastModified,
-            crawlSource
+            crawlSource,
+            crawlId
         );
     }
 
@@ -237,7 +270,8 @@ public class S3CrawlService {
                             headObjectResponse.contentLength(),
                             headObjectResponse.eTag(),
                             headObjectResponse.lastModified(),
-                            crawlSource
+                            crawlSource,
+                            ""
                         );
                         return eventPublisher.publish(event);
                     })

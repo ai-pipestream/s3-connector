@@ -154,7 +154,7 @@ public class S3ConnectorControlServiceImpl extends MutinyS3ConnectorControlServi
                 LOG.infof("Received StartCrawl request: datasourceId=%s, bucket=%s, prefix=%s, requestId=%s",
                     datasourceId, bucket, prefix, requestId);
 
-                return crawlService.crawlBucket(datasourceId, bucket, prefix);
+                return crawlService.crawlBucket(datasourceId, bucket, prefix, requestId);
             })
             .replaceWith(StartCrawlResponse.newBuilder()
                 .setAccepted(true)

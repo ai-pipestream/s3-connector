@@ -9,9 +9,13 @@ import ai.pipestream.connector.s3.v1.DeleteTestFileRequest;
 import ai.pipestream.connector.s3.v1.DeleteTestFileResponse;
 import ai.pipestream.connector.s3.v1.S3ConnectionConfig;
 import ai.pipestream.connector.s3.v1.S3FileLocation;
+import ai.pipestream.connector.s3.state.CrawlStatusRegistry;
 import ai.pipestream.connector.s3.v1.MutinyS3ConnectorControlServiceGrpc;
+import ai.pipestream.connector.s3.v1.S3CrawlPhase;
 import ai.pipestream.connector.s3.v1.StartCrawlRequest;
 import ai.pipestream.connector.s3.v1.StartCrawlResponse;
+import ai.pipestream.connector.s3.v1.StreamCrawlStatusRequest;
+import ai.pipestream.connector.s3.v1.StreamCrawlStatusResponse;
 import ai.pipestream.connector.s3.v1.StreamFileLocationsRequest;
 import ai.pipestream.connector.s3.v1.StreamFileLocationsResponse;
 import ai.pipestream.connector.s3.v1.TestBucketCrawlRequest;
@@ -82,6 +86,12 @@ public class S3ConnectorControlServiceImpl extends MutinyS3ConnectorControlServi
     @Inject
     S3ClientFactory clientFactory;
 
+    @Inject
+    CrawlStatusRegistry statusRegistry;
+
+    /** Cadence of the per-subscriber registry poll behind StreamCrawlStatus. */
+    private static final long STATUS_POLL_MS = 500;
+
     /**
      * Initiates a crawl operation for an S3 bucket.
      * <p>
@@ -131,13 +141,17 @@ public class S3ConnectorControlServiceImpl extends MutinyS3ConnectorControlServi
                 .asRuntimeException());
         }
 
-        // Use connection config from request
-        S3ConnectionConfig connectionConfig = request.getConnectionConfig();
-        if (connectionConfig == null) {
+        // Use connection config from request. proto3 message getters never
+        // return null (default instance instead), so the old null check was
+        // dead code — the absence only surfaced later when the crawl chained
+        // into this response blew up on a blank config. With the crawl now
+        // async-accepted, validate presence properly up front.
+        if (!request.hasConnectionConfig()) {
             return Uni.createFrom().failure(Status.INVALID_ARGUMENT
                 .withDescription("connection_config is required")
                 .asRuntimeException());
         }
+        S3ConnectionConfig connectionConfig = request.getConnectionConfig();
 
         String bucket = firstNonBlank(request.getBucket());
         if (bucket == null) {
@@ -150,11 +164,24 @@ public class S3ConnectorControlServiceImpl extends MutinyS3ConnectorControlServi
         String requestId = firstNonBlank(request.getRequestId(), UUID.randomUUID().toString());
 
         return datasourceConfigService.registerDatasourceConfig(datasourceId, apiKey, connectionConfig)
-            .flatMap(v -> {
+            .invoke(v -> {
                 LOG.infof("Received StartCrawl request: datasourceId=%s, bucket=%s, prefix=%s, requestId=%s",
                     datasourceId, bucket, prefix, requestId);
 
-                return crawlService.crawlBucket(datasourceId, bucket, prefix, requestId);
+                // Fire-and-forget with tracked outcome. The crawl used to be
+                // chained INTO this response, which (a) made StartCrawl take
+                // as long as the full bucket listing — any client deadline
+                // (the e2e harness uses 30s) cancelled the Mutiny chain and
+                // ABORTED the crawl mid-listing on big buckets — and (b) gave
+                // callers no way to learn progress. Now the response returns
+                // immediately and StreamCrawlStatus(request_id) is the
+                // progress/completion view, fed by the registry.
+                statusRegistry.register(requestId);
+                crawlService.crawlBucket(datasourceId, bucket, prefix, requestId)
+                    .subscribe().with(
+                        ignored -> statusRegistry.complete(requestId),
+                        failure -> statusRegistry.fail(requestId,
+                            failure.getClass().getSimpleName() + ": " + failure.getMessage()));
             })
             .replaceWith(StartCrawlResponse.newBuilder()
                 .setAccepted(true)
@@ -162,6 +189,68 @@ public class S3ConnectorControlServiceImpl extends MutinyS3ConnectorControlServi
                 .setRequestId(requestId)
                 .setAcceptedAt(now())
                 .build());
+    }
+
+    /**
+     * State-snapshot status stream for one crawl: emits the CURRENT state
+     * immediately (late subscribers learn the outcome with no subscribe
+     * race), then an update whenever the dispatched count or phase moves,
+     * completing after the terminal-phase response. Backed by a 500ms
+     * poll of the in-memory registry on a virtual thread — no listener
+     * plumbing, and a cancelled stream just interrupts its poller.
+     */
+    @Override
+    public Multi<StreamCrawlStatusResponse> streamCrawlStatus(StreamCrawlStatusRequest request) {
+        String requestId = request.getRequestId();
+        CrawlStatusRegistry.CrawlStatus status = statusRegistry.get(requestId);
+        if (status == null) {
+            return Multi.createFrom().failure(Status.NOT_FOUND
+                .withDescription("No crawl state for request_id=" + requestId
+                    + " (never started here, evicted, or the connector restarted)")
+                .asRuntimeException());
+        }
+        return Multi.createFrom().emitter(emitter -> {
+            Thread poller = Thread.ofVirtual()
+                .name("crawl-status-" + requestId)
+                .start(() -> {
+                    long lastDispatched = -1;
+                    S3CrawlPhase lastPhase = null;
+                    try {
+                        while (!emitter.isCancelled()) {
+                            long dispatched = status.dispatched();
+                            S3CrawlPhase phase = status.phase();
+                            if (dispatched != lastDispatched || phase != lastPhase) {
+                                emitter.emit(toStatusResponse(status));
+                                lastDispatched = dispatched;
+                                lastPhase = phase;
+                            }
+                            if (status.isTerminal()) {
+                                emitter.complete();
+                                return;
+                            }
+                            Thread.sleep(STATUS_POLL_MS);
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        emitter.complete();
+                    }
+                });
+            emitter.onTermination(poller::interrupt);
+        });
+    }
+
+    private static StreamCrawlStatusResponse toStatusResponse(CrawlStatusRegistry.CrawlStatus status) {
+        StreamCrawlStatusResponse.Builder b = StreamCrawlStatusResponse.newBuilder()
+            .setRequestId(status.requestId())
+            .setPhase(status.phase())
+            .setDispatchedCount(status.dispatched());
+        if (status.total() >= 0) {
+            b.setTotalCount(status.total());
+        }
+        if (status.error() != null) {
+            b.setError(status.error());
+        }
+        return b.build();
     }
 
     /**

@@ -71,6 +71,9 @@ public class S3CrawlService {
     @Inject
     S3ConnectorConfig config;
 
+    @Inject
+    ai.pipestream.connector.s3.state.CrawlStatusRegistry statusRegistry;
+
     /**
      * Performs a complete crawl of an S3 bucket and emits crawl events for all discovered objects.
      * <p>
@@ -172,7 +175,11 @@ public class S3CrawlService {
                 List<Uni<Void>> pageEvents = page.contents().stream()
                     .map(s3Object -> {
                         totalObjects.incrementAndGet();
-                        return eventPublisher.publish(createCrawlEvent(datasourceId, bucket, s3Object, crawlSource, crawlId));
+                        return eventPublisher.publish(createCrawlEvent(datasourceId, bucket, s3Object, crawlSource, crawlId))
+                            // Status counter ticks on publish COMPLETION, so
+                            // StreamCrawlStatus reports events actually handed
+                            // to Kafka, not just objects seen in a listing.
+                            .invoke(() -> statusRegistry.markDispatched(crawlId));
                     })
                     .collect(Collectors.toList());
 

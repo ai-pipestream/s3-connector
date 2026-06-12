@@ -17,7 +17,6 @@ import java.util.concurrent.ConcurrentHashMap;
  * </p>
  * <ul>
  *   <li>AWS Key Management Service (KMS)</li>
- *   <li>Infisical</li>
  *   <li>HashiCorp Vault</li>
  *   <li>Azure Key Vault</li>
  *   <li>Google Cloud KMS</li>

@@ -7,13 +7,13 @@ import jakarta.enterprise.context.ApplicationScoped;
  * Service interface for resolving KMS (Key Management Service) references to actual credential values.
  * <p>
  * This service provides a unified interface for retrieving secrets stored in external
- * key management systems. It supports various KMS providers including Infisical,
- * AWS KMS, and other secret management services through standardized reference formats.
+ * key management systems. The reference format is provider-generic; the
+ * concrete backend is AWS KMS-backed secret storage.
  * </p>
  *
  * <h2>Supported Reference Formats</h2>
  * <ul>
- *   <li>{@code kms://project/environment/secret-name} - Infisical-style references</li>
+ *   <li>{@code kms://project/environment/secret-name} - hierarchical secret references</li>
  *   <li>{@code arn:aws:kms:region:account:key/key-id} - AWS KMS references</li>
  * </ul>
  *

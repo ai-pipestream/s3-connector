@@ -31,6 +31,7 @@ public interface ConnectorIntakeRestClient {
      * @param filename      filename for the object
      * @param requestId     request identifier for the upload
      * @param crawlId       crawl invocation id, forwarded so the whole crawl is one run
+     * @param checksumSha256 hex SHA-256 of the body (arms intake dedupe); may be null
      * @return the intake service response
      */
     @POST
@@ -45,6 +46,7 @@ public interface ConnectorIntakeRestClient {
         @HeaderParam("x-source-path") String sourcePath,
         @HeaderParam("x-filename") String filename,
         @HeaderParam("x-request-id") String requestId,
-        @HeaderParam("x-crawl-id") String crawlId
+        @HeaderParam("x-crawl-id") String crawlId,
+        @HeaderParam("x-checksum-sha256") String checksumSha256
     );
 }

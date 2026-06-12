@@ -40,6 +40,9 @@ public class ConnectorIntakeClient {
      * @param contentType     MIME content type of the object
      * @param sizeBytes       size of the object in bytes
      * @param crawlId         the crawl invocation id (forwarded as x-crawl-id); may be empty
+     * @param checksumSha256  hex SHA-256 of the body, forwarded as
+     *                        x-checksum-sha256 to arm the repository intake
+     *                        dedupe; null when the body wasn't buffered
      * @param bodyInputStream input stream of the object body
      * @return the intake service response
      */
@@ -52,6 +55,7 @@ public class ConnectorIntakeClient {
         String contentType,
         long sizeBytes,
         String crawlId,
+        String checksumSha256,
         InputStream bodyInputStream) {
 
         LOG.infof("Starting upload for %s (size: %d bytes)", sourceUrl, sizeBytes);
@@ -68,7 +72,8 @@ public class ConnectorIntakeClient {
                 key,
                 key,
                 requestId,
-                crawlId == null ? "" : crawlId
+                crawlId == null ? "" : crawlId,
+                checksumSha256
             )
             .map(response -> {
                 String respContentType = response.getHeaderString("content-type");

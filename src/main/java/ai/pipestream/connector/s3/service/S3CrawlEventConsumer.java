@@ -79,6 +79,31 @@ public class S3CrawlEventConsumer {
                         .onItem().invoke(response -> logDebug("A", "S3CrawlEventConsumer#downloadObject", "received headers", datasourceId, sourceUrl, bucket, key, startMs, response.response().contentLength(), "downloaded"))
                         .flatMap(s3Response -> {
                             LOG.infof("DEBUG: Received headers, starting stream for %s", event.getSourceUrl());
+                            Long contentLength = s3Response.response().contentLength();
+                            if (contentLength != null && contentLength > 0 && contentLength <= checksumMaxBufferBytes) {
+                                // Buffer + hash before the upload so the intake
+                                // headers can carry x-checksum-sha256 — that
+                                // header is what arms repository-service's
+                                // intake dedupe (identical re-crawl bytes skip
+                                // the S3 PUT). A streamed body can't know its
+                                // digest before the headers go out, so objects
+                                // over the cap upload as before, without
+                                // checksum and without dedupe.
+                                return Uni.createFrom().item(() -> readFully(s3Response, contentLength.intValue()))
+                                    .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
+                                    .flatMap(bytes -> intakeClient.uploadRaw(
+                                        event.getDatasourceId(),
+                                        config.apiKey(),
+                                        event.getSourceUrl(),
+                                        event.getBucket(),
+                                        event.getKey(),
+                                        s3Response.response().contentType(),
+                                        contentLength,
+                                        event.getCrawlId(),
+                                        sha256Hex(bytes),
+                                        new java.io.ByteArrayInputStream(bytes)
+                                    ));
+                            }
                             return intakeClient.uploadRaw(
                                 event.getDatasourceId(),
                                 config.apiKey(),
@@ -86,8 +111,9 @@ public class S3CrawlEventConsumer {
                                 event.getBucket(),
                                 event.getKey(),
                                 s3Response.response().contentType(),
-                                s3Response.response().contentLength(),
+                                contentLength,
                                 event.getCrawlId(),
+                                null,
                                 s3Response
                             );
                         })
@@ -101,6 +127,34 @@ public class S3CrawlEventConsumer {
                         .replaceWithVoid();
                 });
             });
+    }
+
+    /**
+     * Objects at or below this size are buffered in memory to compute the
+     * SHA-256 sent as {@code x-checksum-sha256} (which arms the intake
+     * dedupe); larger objects stream straight through without a checksum.
+     */
+    @org.eclipse.microprofile.config.inject.ConfigProperty(
+            name = "s3.connector.checksum-max-buffer-bytes", defaultValue = "33554432")
+    long checksumMaxBufferBytes;
+
+    private static byte[] readFully(ResponseInputStream<GetObjectResponse> stream, int expectedSize) {
+        try (stream) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream(Math.max(expectedSize, 32));
+            stream.transferTo(out);
+            return out.toByteArray();
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException("Failed to buffer S3 object for checksumming", e);
+        }
+    }
+
+    private static String sha256Hex(byte[] data) {
+        try {
+            return java.util.HexFormat.of().formatHex(
+                    java.security.MessageDigest.getInstance("SHA-256").digest(data));
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
     }
 
     private java.util.concurrent.CompletionStage<ResponseInputStream<GetObjectResponse>> downloadObject(S3AsyncClient client, S3CrawlEvent event) {

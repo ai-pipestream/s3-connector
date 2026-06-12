@@ -134,10 +134,12 @@ public class S3ConnectorControlServiceImpl extends MutinyS3ConnectorControlServi
                 .asRuntimeException());
         }
 
-        String apiKey = firstNonBlank(request.getApiKey(), headerApiKey);
+        // The in-body api_key fallback is gone (security audit 2026-06-12) —
+        // credentials ride only the x-api-key metadata header.
+        String apiKey = headerApiKey;
         if (apiKey == null || apiKey.isBlank()) {
             return Uni.createFrom().failure(Status.UNAUTHENTICATED
-                .withDescription("api_key is required (provide via x-api-key header or api_key field)")
+                .withDescription("x-api-key metadata is required")
                 .asRuntimeException());
         }
 
